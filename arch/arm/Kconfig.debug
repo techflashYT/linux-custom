@@ -17,7 +17,7 @@ config ARM_PTDUMP_DEBUGFS
 	  kernel.
 	  If in doubt, say "N"
 
-config ARM_DEBUG_WX
+config DEBUG_WX
 	bool "Warn on W+X mappings at boot"
 	depends on MMU
 	select ARM_PTDUMP_CORE
@@ -89,6 +89,9 @@ config BACKTRACE_VERBOSE
 
 	  In most cases, say N here, unless you are intending to debug the
 	  kernel and have access to the kernel binary image.
+
+config FRAME_POINTER
+	bool
 
 config DEBUG_USER
 	bool "Verbose user fault messages"
@@ -241,10 +244,6 @@ choice
 		bool "Kernel low-level debugging on BCM5301X/NSP UART1"
 		depends on ARCH_BCM_5301X || ARCH_BCM_NSP
 		select DEBUG_UART_8250
-
-	config DEBUG_BCMBCA
-		bool "Kernel low-level debugging on BCMBCA UART0"
-		depends on ARCH_BCMBCA
 
 	config DEBUG_BCM_HR2
 		bool "Kernel low-level debugging on Hurricane 2 UART2"
@@ -1317,6 +1316,14 @@ choice
 		  This option selects UART0 at 0xb0090000. This is appropriate for
 		  Cortex-R series tiles and SMMs, such as Cortex-R5 and Cortex-R7
 
+	config DEBUG_VITA_UART0
+		bool "Kernel low-level debugging on PSVita using UART0"
+		depends on ARCH_VITA
+		help
+		  Say Y here if you want the debug print routines to direct
+		  their output to UART0 on the PSVita platform.
+
+
 	config DEBUG_VF_UART
 		bool "Vybrid UART"
 		depends on SOC_VF610
@@ -1527,10 +1534,11 @@ config DEBUG_LL_INCLUDE
 	default "debug/tegra.S" if DEBUG_TEGRA_UART
 	default "debug/ux500.S" if DEBUG_UX500_UART
 	default "debug/vexpress.S" if DEBUG_VEXPRESS_UART0_DETECT
+	default "debug/vita.S" if DEBUG_VITA_UART0
 	default "debug/vf.S" if DEBUG_VF_UART
 	default "debug/vt8500.S" if DEBUG_VT8500_UART0
 	default "debug/zynq.S" if DEBUG_ZYNQ_UART0 || DEBUG_ZYNQ_UART1
-	default "debug/bcm63xx.S" if DEBUG_BCM63XX_UART || DEBUG_BCMBCA
+	default "debug/bcm63xx.S" if DEBUG_BCM63XX_UART
 	default "debug/digicolor.S" if DEBUG_DIGICOLOR_UA0
 	default "debug/brcmstb.S" if DEBUG_BRCMSTB_UART
 	default "mach/debug-macro.S"
@@ -1620,6 +1628,7 @@ config DEBUG_UART_PHYS
 	default 0xe0000000 if DEBUG_SPEAR13XX
 	default 0xe0064200 if DEBUG_AT91_LAN966_FLEXCOM
 	default 0xe1824200 if DEBUG_AT91_SAMA7G5_FLEXCOM3
+	default 0xe2030000 if DEBUG_VITA_UART0
 	default 0xe4007000 if DEBUG_HIP04_UART
 	default 0xe6c40000 if DEBUG_RMOBILE_SCIFA0
 	default 0xe6c50000 if DEBUG_RMOBILE_SCIFA1
@@ -1644,7 +1653,6 @@ config DEBUG_UART_PHYS
 	default 0xfe531000 if DEBUG_STIH41X_SBC_ASC1
 	default 0xfed32000 if DEBUG_STIH41X_ASC2
 	default 0xff690000 if DEBUG_RK32_UART2
-	default 0xff800640 if DEBUG_BCMBCA
 	default 0xffc02000 if DEBUG_SOCFPGA_UART0
 	default 0xffc02100 if DEBUG_SOCFPGA_ARRIA10_UART1
 	default 0xffc03000 if DEBUG_SOCFPGA_CYCLONE5_UART1
@@ -1669,11 +1677,11 @@ config DEBUG_UART_PHYS
 		DEBUG_RMOBILE_SCIFA0 || DEBUG_RMOBILE_SCIFA1 || \
 		DEBUG_RMOBILE_SCIFA4 || \
 		DEBUG_S3C64XX_UART || \
-		DEBUG_BCM63XX_UART || DEBUG_BCMBCA || DEBUG_ASM9260_UART || \
+		DEBUG_BCM63XX_UART || DEBUG_ASM9260_UART || \
 		DEBUG_DIGICOLOR_UA0 || \
 		DEBUG_AT91_UART || DEBUG_STM32_UART || \
 		DEBUG_STIH41X_ASC2 || DEBUG_STIH41X_SBC_ASC1 || \
-		DEBUG_STIH418_SBC_ASC0
+		DEBUG_STIH418_SBC_ASC0 || DEBUG_VITA_UART0
 
 config DEBUG_UART_VIRT
 	hex "Virtual base address of debug UART"
@@ -1698,6 +1706,7 @@ config DEBUG_UART_VIRT
 	default 0xf1c28000 if DEBUG_SUNXI_UART0
 	default 0xf1c28400 if DEBUG_SUNXI_UART1
 	default 0xf1f02800 if DEBUG_SUNXI_R_UART
+	default 0xf2030000 if DEBUG_VITA_UART0
 	default 0xf31004c0 if DEBUG_MESON_UARTAO
 	default 0xf4090000 if DEBUG_LPC32XX
 	default 0xf4200000 if DEBUG_GEMINI
@@ -1739,7 +1748,6 @@ config DEBUG_UART_VIRT
 	default 0xfe018000 if DEBUG_MMP_UART3
 	default 0xfe100000 if DEBUG_IMX23_UART || DEBUG_IMX28_UART
 	default 0xfe300000 if DEBUG_BCM_KONA_UART
-	default 0xfe300640 if DEBUG_BCMBCA
 	default 0xfeb00000 if DEBUG_HI3620_UART || DEBUG_HIX5HD2_UART
 	default 0xfeb24000 if DEBUG_RK3X_UART0
 	default 0xfeb26000 if DEBUG_RK3X_UART1
@@ -1771,11 +1779,11 @@ config DEBUG_UART_VIRT
 		DEBUG_UART_8250 || DEBUG_UART_PL01X || DEBUG_MESON_UARTAO || \
 		DEBUG_QCOM_UARTDM || \
 		DEBUG_S3C64XX_UART || \
-		DEBUG_BCM63XX_UART || DEBUG_BCMBCA || DEBUG_ASM9260_UART || \
+		DEBUG_BCM63XX_UART || DEBUG_ASM9260_UART || \
 		DEBUG_DIGICOLOR_UA0 || \
 		DEBUG_AT91_UART || DEBUG_STM32_UART || \
 		DEBUG_STIH41X_ASC2 || DEBUG_STIH41X_SBC_ASC1 || \
-		DEBUG_STIH418_SBC_ASC0
+		DEBUG_STIH418_SBC_ASC0 || DEBUG_VITA_UART0
 
 config DEBUG_UART_8250_SHIFT
 	int "Register offset shift for the 8250 debug UART"
@@ -1812,8 +1820,15 @@ config DEBUG_UNCOMPRESS
 		     (!DEBUG_TEGRA_UART || !ZBOOT_ROM) && \
 		     !DEBUG_BRCMSTB_UART && !DEBUG_SEMIHOSTING
 	help
-	  Say Y here to enable debug output in the decompressor code, using
-	  the selected DEBUG_LL output method.
+	  This option influences the normal decompressor output for
+	  multiplatform kernels.  Normally, multiplatform kernels disable
+	  decompressor output because it is not possible to know where to
+	  send the decompressor output.
+
+	  When this option is set, the selected DEBUG_LL output method
+	  will be re-used for normal decompressor output on multiplatform
+	  kernels.
+
 
 config UNCOMPRESS_INCLUDE
 	string

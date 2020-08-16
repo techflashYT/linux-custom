@@ -66,6 +66,10 @@ unsigned long random_get_entropy_fallback(void);
 
 #include <asm/timex.h>
 
+#ifdef CONFIG_X86_XBOX
+#include <linux/xbox.h>
+#endif
+
 #ifndef random_get_entropy
 /*
  * The random_get_entropy() function is used by the /dev/random driver
@@ -158,7 +162,11 @@ extern void hardpps(const struct timespec64 *, const struct timespec64 *);
 
 int read_current_timer(unsigned long *timer_val);
 
+#ifdef CONFIG_X86_XBOX
+#define PIT_TICK_RATE xbox_pit_tick_rate()
+#else
 /* The clock frequency of the i8253/i8254 PIT */
 #define PIT_TICK_RATE 1193182ul
+#endif
 
 #endif /* LINUX_TIMEX_H */

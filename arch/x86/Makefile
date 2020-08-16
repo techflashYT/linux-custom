@@ -113,7 +113,11 @@ ifeq ($(CONFIG_X86_32),y)
         KBUILD_AFLAGS += -m32
         KBUILD_CFLAGS += -m32
 
+ifdef CONFIG_X86_XBOX
+        KBUILD_CFLAGS += -mregparm=3 -freg-struct-return
+else
         KBUILD_CFLAGS += -msoft-float -mregparm=3 -freg-struct-return
+endif
 
         # Never want PIC in a 32-bit kernel, prevent breakage with GCC built
         # with nonstandard options
@@ -281,6 +285,8 @@ drivers-$(CONFIG_PCI)            += arch/x86/pci/
 drivers-$(CONFIG_PM) += arch/x86/power/
 
 drivers-$(CONFIG_VIDEO) += arch/x86/video/
+
+drivers-$(CONFIG_X86_XBOX) += arch/x86/xbox/
 
 ####
 # boot loader support. Several targets are kept for legacy purposes

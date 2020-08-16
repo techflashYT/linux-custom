@@ -153,11 +153,12 @@ config X86
 	select ARCH_WANT_IRQS_OFF_ACTIVATE_MM
 	select BUILDTIME_TABLE_SORT
 	select CLKEVT_I8253
-	select CLOCKSOURCE_WATCHDOG
+	select CLOCKSOURCE_WATCHDOG		if !X86_XBOX
 	# Word-size accesses may read uninitialized data past the trailing \0
 	# in strings and cause false KMSAN reports.
 	select DCACHE_WORD_ACCESS		if !KMSAN
 	select DYNAMIC_SIGFRAME
+	select DCACHE_WORD_ACCESS
 	select EDAC_ATOMIC_SCRUB
 	select EDAC_SUPPORT
 	select GENERIC_CLOCKEVENTS_BROADCAST	if X86_64 || (X86_32 && X86_LOCAL_APIC)
@@ -692,6 +693,15 @@ config X86_INTEL_QUARK
 	  Select to include support for Quark X1000 SoC.
 	  Say Y here if you have a Quark based system such as the Arduino
 	  compatible Intel Galileo.
+
+config X86_XBOX
+	bool "Xbox (Microsoft)"
+	depends on X86_32
+	help
+	  Xbox is a standard PC from Microsoft minus some legacy hardware.
+
+	  Only choose this option if you are building a kernel for such a
+	  machine, otherwise choose "PC-compatible".
 
 config X86_INTEL_LPSS
 	bool "Intel Low Power Subsystem Support"

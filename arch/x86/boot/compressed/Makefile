@@ -26,6 +26,17 @@ targets := vmlinux vmlinux.bin vmlinux.bin.gz vmlinux.bin.bz2 vmlinux.bin.lzma \
 # be valid.
 KBUILD_CFLAGS := -m$(BITS) -O2 $(CLANG_FLAGS)
 KBUILD_CFLAGS += $(CC_FLAGS_DIALECT)
+
+ifdef CONFIG_X86_XBOX
+#
+# There is some strange interaction when paging is off, that makes
+# newer v1.1+ Xboxen (manufactured August 2002 or later) crash while
+# decompressing the kernel. Compiling the decompressor without any
+# optimization reliably works around this problem.
+#
+CFLAGS_misc.o := -O0
+endif
+
 KBUILD_CFLAGS += -fno-strict-aliasing -fPIE
 KBUILD_CFLAGS += -fno-jump-tables
 KBUILD_CFLAGS += -Wundef

@@ -4,6 +4,7 @@
  *
  * Copyright (C) 2016 Sergi Granell
  * Copyright (C) 2021 Santiago Herrera
+ * Copyright (C) 2021 Nick Desaulniers
  *
  * This file is licensed under the terms of the GNU General Public
  * License version 2.  This program is licensed "as is" without any
@@ -29,7 +30,6 @@
  */
 
 #define SECONDARY_STARTUP_ADDR(n)	(0x1FFFFFF0 + ((n)*4))
-#define SCU_BASE_ADDR		0x17E00000
 
 static int ctr_smp_boot_secondary(unsigned int cpu,
 				    struct task_struct *idle)
@@ -51,11 +51,15 @@ static int ctr_smp_boot_secondary(unsigned int cpu,
 
 static void ctr_smp_prepare_cpus(unsigned int max_cpus)
 {
+	struct device_node *np;
 	void __iomem *scu_base;
 
-	scu_base = ioremap(SCU_BASE_ADDR, SZ_256);
-	scu_enable(scu_base);
-	iounmap(scu_base);
+	np = of_find_compatible_node(NULL, NULL, "arm,arm11mp-scu");
+	if (np) {
+		scu_base = of_iomap(np, 0);
+		scu_enable(scu_base);
+		of_node_put(np);
+	}
 }
 
 static const struct smp_operations ctr_smp_ops __initconst = {

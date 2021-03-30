@@ -1,0 +1,104 @@
+#
+# Nintendo 3DS Specific Drivers
+#
+
+menuconfig NINTENDO3DS_PLATFORM_DEVICES
+	bool "Nintendo 3DS specific device drivers"
+	depends on ARCH_CTR
+	default y
+	help
+	  Say Y here to get to use specific device drivers for the Nintendo 3DS
+	  port.
+
+	  It's highly recommended to enable all of them as built-in.
+
+
+if NINTENDO3DS_PLATFORM_DEVICES
+
+config CTR_PXI
+	tristate "Nintendo 3DS VirtIO bridge"
+	select VIRTIO
+	default y
+	help
+	  TODO
+
+config CTR_SPI
+	tristate "Nintendo 3DS SPI driver"
+	depends on SPI_MASTER
+	default y
+	help
+	  Nintendo 3DS SPI bus driver.
+
+
+config CTR_CODEC
+	tristate "Nintendo 3DS CODEC driver"
+	depends on CTR_SPI
+	select INPUT_POLLDEV
+	default y
+	help
+	  Nintendo 3DS touchscreen/circle pad driver.
+
+
+config CTR_I2C
+	tristate "Nintendo 3DS I2C driver"
+	select I2C
+	select I2C_ALGOBIT
+	select REGMAP_I2C
+	default y
+	help
+	  Nintendo 3DS I2C bus driver.
+
+
+config CTR_MCU
+	tristate "Nintendo 3DS MCU interface"
+	depends on CTR_I2C
+	select GPIOLIB
+	select REGULATOR
+	select RESET_REGULATOR
+	select REGMAP_IRQ
+	select MFD_SIMPLE_MFD_I2C
+	default y
+	help
+	  Nintendo 3DS MCU/PMIC driver.
+
+
+config CTR_MCURTC
+	tristate "Nintendo 3DS RTC driver"
+	depends on CTR_MCU
+	select RTC_CLASS
+	default y
+	help
+	  Nintendo 3DS real time clock driver.
+
+
+config CTR_MCULED
+	tristate "Nintendo 3DS LED driver"
+	depends on CTR_MCU
+	select NEW_LEDS
+	select LEDS_CLASS
+	select LEDS_CLASS_MULTICOLOR
+	default y
+	help
+	  Nintendo 3DS notification LED driver.
+
+
+config CTR_MCUPSY
+	tristate "Nintendo 3DS battery and AC driver"
+	depends on CTR_MCU
+	select POWER_SUPPLY
+	default y
+	help
+	  Exposes information about the current
+	  battery and charger status.
+
+
+config CTR_MCUACCEL
+	tristate "Nintendo 3DS accelerometer driver"
+	depends on CTR_MCU
+	select IIO
+	default y
+	help
+	  TODO
+
+
+endif # NINTENDO3DS_PLATFORM_DEVICES

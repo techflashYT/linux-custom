@@ -1,0 +1,474 @@
+/dts-v1/;
+#include <dt-bindings/interrupt-controller/arm-gic.h>
+
+#include <dt-bindings/gpio/gpio.h>
+#include <dt-bindings/input/input.h>
+
+/ {
+	model = "Nintendo 3DS (CTR)";
+	compatible = "nintendo,ctr";
+	#address-cells = <1>;
+	#size-cells = <1>;
+
+	cpus {
+		#address-cells = <1>;
+		#size-cells = <0>;
+		enable-method = "nintendo,ctr-smp";
+
+		cpu@0 {
+			device_type = "cpu";
+			compatible = "arm,arm11mpcore";
+			reg = <0>;
+		};
+
+		cpu@1 {
+			device_type = "cpu";
+			compatible = "arm,arm11mpcore";
+			reg = <1>;
+		};
+	};
+
+	chosen {
+		/* No FB: bootargs = "earlyprintk keep_bootcon fbcon=rotate:1 init=/init"; */
+		#address-cells = <1>;
+		#size-cells = <1>;
+		ranges;
+
+		bootargs = "nr_cpus=2 keep_bootcon fbcon=rotate:1 root=/dev/ram rw earlyprintk init=init console=tty0";
+
+		display: framebuffer@18000000 {
+			compatible = "simple-framebuffer";
+			reg = <0x18000000 (400*240*3)>;
+			width = <240>;
+			height = <400>;
+			stride = <(240*3)>;
+			format = "r8g8b8";
+		};
+
+		fcram: memory@20000000 {
+			device_type = "memory";
+			reg = <0x20000000 0x08000000>;
+		};
+	};
+
+	soc {
+		#address-cells = <1>;
+		#size-cells = <1>;
+		ranges;
+
+		compatible = "simple-bus";
+
+		interrupt-parent = <&gic>;
+
+		cfg: syscon@10140000 {
+			compatible = "nintendo,ctr-cfg-syscon", "syscon";
+			reg = <0x10140000 0x1000>;
+		};
+
+		pdn: syscon@10141000 {
+			compatible = "nintendo,ctr-pdn-syscon", "syscon";
+			reg = <0x10141000 0x1000>;
+		};
+
+		hid: hid-controller@10146000 {
+			compatible = "nintendo,ctr-gpio", "basic-mmio-gpio";
+			reg = <0x10146000 0x2>;
+			reg-names = "dat";
+
+			gpio-controller;
+			#gpio-cells = <2>;
+
+			no-output;
+		};
+
+		pxi: virtio-bridge@10163000 {
+			compatible = "nintendo,ctr-pxi";
+			reg = <0x10163000 0x10>;
+
+			interrupts =
+				<GIC_SPI 0x30 IRQ_TYPE_EDGE_RISING>,
+				<GIC_SPI 0x32 IRQ_TYPE_EDGE_RISING>,
+				<GIC_SPI 0x33 IRQ_TYPE_EDGE_RISING>;
+		};
+
+		gpio0: gpio-controller@10147000 {
+			compatible = "nintendo,ctr-gpio", "basic-mmio-gpio";
+			reg = <0x10147000 0x2>;
+			reg-names = "dat";
+
+			gpio-controller;
+			#gpio-cells = <2>;
+
+			no-output;
+		};
+
+		gpio1: gpio-controller@10147010 {
+			compatible = "nintendo,ctr-gpio", "basic-mmio-gpio";
+			reg = <0x10147010 0x1 0x10147011 0x1>;
+			reg-names = "dat", "dirout";
+
+			gpio-controller;
+			#gpio-cells = <2>;
+		};
+
+		gpio2: gpio-controller@10147014 {
+			compatible = "nintendo,ctr-gpio", "basic-mmio-gpio";
+			reg = <0x10147014 0x2>;
+			reg-names = "dat";
+
+			gpio-controller;
+			#gpio-cells = <2>;
+		};
+
+		gpio3: gpio-controller@10147020 {
+			compatible = "nintendo,ctr-gpio", "basic-mmio-gpio";
+			reg = <0x10147020 0x2 0x10147022 0x2>;
+			reg-names = "dat", "dirout";
+
+			gpio-controller;
+			#gpio-cells = <2>;
+		};
+
+		gpio3irq: gpio-intc@10147024 {
+			compatible = "nintendo,ctr-gpiointc";
+			reg = <0x10147024 0x4>;
+
+			gpios = <&gpio3 9 0>, <&gpio3 1 0>;
+			interrupts =
+				<GIC_SPI 0x51 IRQ_TYPE_EDGE_RISING>,
+				<GIC_SPI 0x49 IRQ_TYPE_EDGE_RISING>;
+
+			interrupt-controller;
+			#interrupt-cells = <2>;
+		};
+
+		gpio4: gpio-controller@10147028 {
+			compatible = "nintendo,ctr-gpio", "basic-mmio-gpio";
+			reg = <0x10147028 0x2>;
+			reg-names = "dat";
+
+			gpio-controller;
+			#gpio-cells = <2>;
+		};
+
+		i2c1: i2c@10161000 {
+			#address-cells = <1>;
+			#size-cells = <0>;
+
+			compatible = "nintendo,ctr-i2c";
+			reg = <0x10161000 0x1000>;
+
+			interrupts = <GIC_SPI 0x34 IRQ_TYPE_EDGE_RISING>;
+		};
+
+		i2c2: i2c@10144000 {
+			#address-cells = <1>;
+			#size-cells = <0>;
+
+			compatible = "nintendo,ctr-i2c";
+			reg = <0x10144000 0x1000>;
+
+			interrupts = <GIC_SPI 0x35 IRQ_TYPE_EDGE_RISING>;
+
+			mcu: mcu@25 {
+				#address-cells = <1>;
+				#size-cells = <0>;
+
+				compatible = "nintendo,ctr-mcu";
+				reg = <0x25>;
+
+				mcuintc: mcu-intc {
+					compatible = "nintendo,ctrmcu-intc";
+
+					interrupt-controller;
+					#interrupt-cells = <2>;
+
+					interrupt-parent = <&gpio3irq>;
+					interrupts = <0 IRQ_TYPE_EDGE_FALLING>;
+				};
+
+				led: mcu-led {
+					compatible = "nintendo,ctrmcu-led";
+				};
+
+				rtc: mcu-rtc {
+					compatible = "nintendo,ctrmcu-rtc";
+				};
+
+				powersupply: mcu-powersupply {
+					compatible = "nintendo,ctrmcu-powersupply";
+				};
+
+				accelerometer: mcu-accel {
+					compatible = "nintendo,ctrmcu-accel";
+				};
+
+				pwroff_reg: pwroff-regulator {
+					compatible = "nintendo,ctrmcu-regulator";
+					off = <1>;
+					delay-us = <1000000>;
+				};
+
+				reboot_reg: reset-regulator {
+					compatible = "nintendo,ctrmcu-regulator";
+					off = <4>;
+					delay-us = <1000000>;
+				};
+
+				panel_reg: panel-regulator {
+					compatible = "nintendo,ctrmcu-regulator";
+					on = <17>;
+					off = <16>;
+				};
+
+				bl_top_reg: backlight-top-regulator {
+					compatible = "nintendo,ctrmcu-regulator";
+					on = <21>;
+					off = <20>;
+				};
+
+				bl_bot_reg: backlight-bottom-regulator {
+					compatible = "nintendo,ctrmcu-regulator";
+					on = <19>;
+					off = <18>;
+				};
+			};
+		};
+
+		i2c3: i2c@10148000 {
+			#address-cells = <1>;
+			#size-cells = <0>;
+
+			compatible = "nintendo,ctr-i2c";
+			reg = <0x10148000 0x1000>;
+
+			interrupts = <GIC_SPI 0x3C IRQ_TYPE_EDGE_RISING>;
+
+			sc16is750: infrared@4d {
+				compatible = "nxp,sc16is750";
+				reg = <0x4d>;
+				clock-frequency = <18432000>;
+
+				interrupt-parent = <&gpio3irq>;
+				interrupts = <1 IRQ_TYPE_EDGE_FALLING>;
+
+				gpio-controller;
+				#gpio-cells = <2>;
+			};
+		};
+
+		spi1: spi@10142800 {
+			#address-cells = <1>;
+			#size-cells = <0>;
+
+			compatible = "nintendo,ctr-spi";
+			reg = <0x10142800 0x800>;
+
+			interrupts = <GIC_SPI 0x37 IRQ_TYPE_EDGE_RISING>;
+
+			ts: codec@0 {
+				compatible = "nintendo,ctrspi-codec";
+				reg = <0>;
+
+				spi-max-frequency = <524288>;
+
+				touchscreen-size-x = <4096>;
+				touchscreen-size-y = <4096>;
+				touchscreen-inverted-y;
+				touchscreen-swapped-x-y;
+			};
+		};
+
+		spi2: spi@10143800 {
+			#address-cells = <1>;
+			#size-cells = <0>;
+
+			compatible = "nintendo,ctr-spi";
+			reg = <0x10143800 0x800>;
+
+			interrupts = <GIC_SPI 0x04 IRQ_TYPE_EDGE_RISING>;
+		};
+
+		spi3: spi@10160800 {
+			#address-cells = <1>;
+			#size-cells = <0>;
+
+			compatible = "nintendo,ctr-spi";
+			reg = <0x10160800 0x800>;
+
+			interrupts = <GIC_SPI 0x36 IRQ_TYPE_EDGE_RISING>;
+
+			flash: nvram@1 {
+				compatible = "jedec,spi-nor";
+				reg = <1>;
+
+				spi-max-frequency = <524288>;
+			};
+		};
+
+		refclk: refclk134mhz {
+			compatible = "fixed-clock";
+			#clock-cells = <0>;
+			clock-frequency = <134055928>;
+			clock-output-names = "ctr:refclk134mhz";
+		};
+
+		timer: twd-timer@17E00600 {
+			compatible = "arm,arm11mp-twd-timer";
+			reg = <0x17E00600 0x20>;
+			interrupts = <GIC_PPI 13 (GIC_CPU_MASK_RAW(0xF) | IRQ_TYPE_EDGE_RISING)>;
+			clocks = <&refclk>;
+		};
+
+		watchdog: twd-watchdog@17E00620 {
+			compatible = "arm,arm11mp-twd-wdt";
+			reg = <0x17E00620 0x20>;
+			interrupts = <GIC_PPI 14 (GIC_CPU_MASK_RAW(0xF) | IRQ_TYPE_EDGE_RISING)>;
+		};
+
+		gic: interrupt-controller@17E01000 {
+			compatible = "arm,arm11mp-gic";
+			#interrupt-cells = <3>;
+			#address-cells = <1>;
+			interrupt-controller;
+			reg = <0x17E01000 0x1000>,
+			      <0x17E00100 0x100>;
+		};
+
+		scu: scu@17E00000 {
+			compatible = "arm,arm11mp-scu";
+			reg = <0x17E00000 0x100>;
+		};
+	};
+
+	amba {
+		compatible = "arm,amba-bus";
+		#address-cells = <1>;
+		#size-cells = <1>;
+		ranges;
+
+		interrupt-parent = <&gic>;
+
+		cdma: dma@10200000 {
+			compatible = "arm,pl330", "arm,primecell";
+			reg = <0x10200000 0x1000>;
+
+			clocks = <&refclk>;
+			clock-names = "apb_pclk";
+
+			interrupts =
+				<GIC_SPI 0x19 IRQ_TYPE_LEVEL_HIGH>,
+				<GIC_SPI 0x1A IRQ_TYPE_LEVEL_HIGH>,
+				<GIC_SPI 0x1B IRQ_TYPE_LEVEL_HIGH>;
+
+			#dma-cells = <1>;
+			#dma-channels = <8>;
+			#dma-requests = <32>;
+		};
+	};
+
+	poweroff: poweroff {
+		compatible = "regulator-poweroff";
+		cpu-supply = <&pwroff_reg>;
+	};
+
+	mcu_buttons {
+		compatible = "gpio-keys";
+		interrupt-parent = <&mcuintc>;
+
+		power {
+			linux,code = <KEY_POWER>;
+			interrupts = <0 IRQ_TYPE_LEVEL_HIGH>;
+			label = "Power";
+		};
+
+		home {
+			linux,code = <KEY_HOME>;
+			interrupts = <2 IRQ_TYPE_LEVEL_HIGH>;
+			label = "Home";
+		};
+
+		wifi {
+			linux,code = <KEY_WWAN>;
+			interrupts = <4 IRQ_TYPE_LEVEL_HIGH>;
+			label = "Wireless";
+		};
+	};
+
+	hid_buttons {
+		compatible = "gpio-keys-polled";
+		poll-interval = <10>;
+
+		a {
+			linux,code = <BTN_A>;
+			gpios = <&hid 0 GPIO_ACTIVE_LOW>;
+			label = "A";
+		};
+
+		b {
+			linux,code = <BTN_B>;
+			gpios = <&hid 1 GPIO_ACTIVE_LOW>;
+			label = "B";
+		};
+
+		select {
+			linux,code = <BTN_SELECT>;
+			gpios = <&hid 2 GPIO_ACTIVE_LOW>;
+			label = "Select";
+		};
+
+		start {
+			linux,code = <BTN_START>;
+			gpios = <&hid 3 GPIO_ACTIVE_LOW>;
+			label = "Start";
+		};
+
+		right {
+			linux,code = <KEY_RIGHT>;
+			gpios = <&hid 4 GPIO_ACTIVE_LOW>;
+			label = "Right";
+		};
+
+		left {
+			linux,code = <KEY_LEFT>;
+			gpios = <&hid 5 GPIO_ACTIVE_LOW>;
+			label = "Left";
+		};
+
+		up {
+			linux,code = <KEY_UP>;
+			gpios = <&hid 6 GPIO_ACTIVE_LOW>;
+			label = "Up";
+		};
+
+		down {
+			linux,code = <KEY_DOWN>;
+			gpios = <&hid 7 GPIO_ACTIVE_LOW>;
+			label = "Down";
+		};
+
+		trig_right {
+			linux,code = <BTN_TR>;
+			gpios = <&hid 8 GPIO_ACTIVE_LOW>;
+			label = "Right trigger";
+		};
+
+		trig_left {
+			linux,code = <BTN_TL>;
+			gpios = <&hid 9 GPIO_ACTIVE_LOW>;
+			label = "Left trigger";
+		};
+
+		x {
+			linux,code = <BTN_X>;
+			gpios = <&hid 10 GPIO_ACTIVE_LOW>;
+			label = "X";
+		};
+
+		y {
+			linux,code = <BTN_Y>;
+			gpios = <&hid 11 GPIO_ACTIVE_LOW>;
+			label = "Y";
+		};
+	};
+};

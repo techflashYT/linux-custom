@@ -3,6 +3,10 @@ source "drivers/platform/mips/Kconfig"
 
 source "drivers/platform/loongarch/Kconfig"
 
+if ARM
+source "drivers/platform/nintendo3ds/Kconfig"
+endif
+
 source "drivers/platform/goldfish/Kconfig"
 
 source "drivers/platform/chrome/Kconfig"

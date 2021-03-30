@@ -3,7 +3,13 @@ if MIPS
 source "drivers/platform/mips/Kconfig"
 endif
 
+<<<<<<< HEAD
 source "drivers/platform/loongarch/Kconfig"
+=======
+if ARM
+source "drivers/platform/nintendo3ds/Kconfig"
+endif
+>>>>>>> initial version working on 5.11
 
 source "drivers/platform/goldfish/Kconfig"
 

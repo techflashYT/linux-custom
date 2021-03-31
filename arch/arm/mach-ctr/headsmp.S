@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  *  linux/arch/arm/mach-nintendo3ds/headsmp.S
  *
@@ -34,5 +35,5 @@ ENTRY(ctr_secondary_startup)
 	/* Data Synchronization Barrier */
 	mcr p15, 0, r0, c7, c10, 4
 
-    b secondary_startup
+	b secondary_startup
 ENDPROC(ctr_secondary_startup)

@@ -1408,6 +1408,7 @@ static void ath6kl_sdio_remove(struct sdio_func *func)
 }
 
 static const struct sdio_device_id ath6kl_sdio_devices[] = {
+	{SDIO_DEVICE(SDIO_VENDOR_ID_ATHEROS, 0x201)}, /* DSi/3DS wifi chip ID? */
 	{SDIO_DEVICE(SDIO_VENDOR_ID_ATHEROS, SDIO_DEVICE_ID_ATHEROS_AR6003_00)},
 	{SDIO_DEVICE(SDIO_VENDOR_ID_ATHEROS, SDIO_DEVICE_ID_ATHEROS_AR6003_01)},
 	{SDIO_DEVICE(SDIO_VENDOR_ID_ATHEROS, SDIO_DEVICE_ID_ATHEROS_AR6004_00)},

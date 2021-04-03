@@ -1,5 +1,7 @@
 obj-$(CONFIG_ARCH_CTR)	+= ctr_gpiointc.o	# hacked in by default
 
+obj-$(CONFIG_CTR_SDHC)	+= ctr_sdhc.o
+
 obj-$(CONFIG_CTR_PXI)	+= ctr_pxi.o
 
 obj-$(CONFIG_CTR_SPI)	+= ctr_spi.o

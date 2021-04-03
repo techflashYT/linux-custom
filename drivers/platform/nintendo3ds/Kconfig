@@ -15,6 +15,13 @@ menuconfig NINTENDO3DS_PLATFORM_DEVICES
 
 if NINTENDO3DS_PLATFORM_DEVICES
 
+config CTR_SDHC
+	tristate "Nintendo 3DS SD Host Controller"
+	select MMC
+	default y
+	help
+	  TODO
+
 config CTR_PXI
 	tristate "Nintendo 3DS VirtIO bridge"
 	select VIRTIO

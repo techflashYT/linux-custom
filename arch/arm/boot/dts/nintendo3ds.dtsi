@@ -105,6 +105,7 @@
 				<GIC_SPI 0x49 IRQ_TYPE_EDGE_RISING>;
 
 			interrupt-controller;
+			#address-cells = <1>;
 			#interrupt-cells = <2>;
 		};
 
@@ -137,9 +138,6 @@
 			interrupts = <GIC_SPI 0x35 IRQ_TYPE_EDGE_RISING>;
 
 			mcu: mcu@25 {
-				#address-cells = <1>;
-				#size-cells = <0>;
-
 				compatible = "nintendo,3ds-mcu";
 				reg = <0x25>;
 
@@ -147,6 +145,7 @@
 					compatible = "nintendo,3dsmcu-intc";
 
 					interrupt-controller;
+					#address-cells = <1>;
 					#interrupt-cells = <2>;
 
 					interrupt-parent = <&gpio3irq>;
@@ -272,27 +271,20 @@
 			};
 		};
 
-		refclk: refclk134mhz {
-			compatible = "fixed-clock";
-			#clock-cells = <0>;
-			clock-frequency = <134055928>;
-			clock-output-names = "3ds:refclk134mhz";
-		};
-
-		timer: twd-timer@17E00600 {
+		timer: twd-timer@17e00600 {
 			compatible = "arm,arm11mp-twd-timer";
 			reg = <0x17E00600 0x20>;
 			interrupts = <GIC_PPI 13 (GIC_CPU_MASK_RAW(0xF) | IRQ_TYPE_EDGE_RISING)>;
 			clocks = <&refclk>;
 		};
 
-		watchdog: twd-watchdog@17E00620 {
+		watchdog: twd-watchdog@17e00620 {
 			compatible = "arm,arm11mp-twd-wdt";
 			reg = <0x17E00620 0x20>;
 			interrupts = <GIC_PPI 14 (GIC_CPU_MASK_RAW(0xF) | IRQ_TYPE_EDGE_RISING)>;
 		};
 
-		gic: interrupt-controller@17E01000 {
+		gic: interrupt-controller@17e01000 {
 			compatible = "arm,arm11mp-gic";
 			#interrupt-cells = <3>;
 			#address-cells = <1>;
@@ -301,7 +293,7 @@
 			      <0x17E00100 0x100>;
 		};
 
-		scu: scu@17E00000 {
+		scu: scu@17e00000 {
 			compatible = "arm,arm11mp-scu";
 			reg = <0x17E00000 0x100>;
 		};
@@ -331,6 +323,13 @@
 			#dma-channels = <8>;
 			#dma-requests = <32>;
 		};
+	};
+
+	refclk: refclk134mhz {
+		compatible = "fixed-clock";
+		#clock-cells = <0>;
+		clock-frequency = <134055928>;
+		clock-output-names = "3ds:refclk134mhz";
 	};
 
 	poweroff: poweroff {

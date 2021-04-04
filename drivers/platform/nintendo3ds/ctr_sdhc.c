@@ -20,6 +20,7 @@
 #include <linux/pm_runtime.h>
 #include <linux/mmc/host.h>
 #include <linux/mmc/mmc.h>
+#include <linux/mmc/sdio.h>
 
 #include <linux/of.h>
 #include <linux/irq.h>
@@ -363,6 +364,12 @@ static void ctr_sdhc_start_cmd(struct ctr_sdhc *host, struct mmc_command *cmd)
 	}
 
 	host->cmd = cmd;
+
+	if (cmd->opcode == SD_IO_RW_EXTENDED)
+		c |= SDHC_CMD_SECURE;
+
+	if (cmd->opcode == SD_IO_RW_DIRECT)
+		c |= SDHC_CMD_SECURE;
 
 	if (cmd->opcode == MMC_APP_CMD)
 		c |= SDHC_CMDTYPE_APP;

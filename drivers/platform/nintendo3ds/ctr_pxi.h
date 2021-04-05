@@ -1,5 +1,13 @@
-#ifndef CTR_PXI__
-#define CTR_PXI__
+// SPDX-License-Identifier: GPL-2.0
+/*
+ *  ctr_pxi.c
+ *
+ *  Copyright (C) 2020-2021 Santiago Herrera
+ *
+ *  Based on virtio_mmio.c
+ */
+
+#pragma once
 
 #define VPXI_MAXDEV	(128)
 #define VPXI_VRING_ALIGN	(PAGE_SIZE)
@@ -119,5 +127,3 @@ struct pxi_host {
 	unsigned vpd_count;
 	struct virtio_pxi_dev *vpdevs;
 };
-
-#endif // CTR_PXI__

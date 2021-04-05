@@ -1,11 +1,8 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  * ctr/rtc.c
  *
- * Copyright (C) 2020-2021 Wolfvak
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 as
- * published by the Free Software Foundation.
+ * Copyright (C) 2020-2021 Santiago Herrera
  */
 
 #define DRIVER_NAME	"3dsmcu-rtc"
@@ -103,6 +100,6 @@ static struct platform_driver ctr_mcu_rtc_driver = {
 module_platform_driver(ctr_mcu_rtc_driver);
 
 MODULE_DESCRIPTION("Nintendo 3DS MCU Real Time Clock driver");
-MODULE_AUTHOR("Wolfvak");
+MODULE_AUTHOR("Santiago Herrera");
 MODULE_LICENSE("GPL");
 MODULE_ALIAS("platform:" DRIVER_NAME);

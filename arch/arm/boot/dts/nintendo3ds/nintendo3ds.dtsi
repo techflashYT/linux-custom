@@ -26,6 +26,7 @@
 
 		interrupt-parent = <&gic>;
 
+		/* Main syscon blocks */
 		cfg: syscon@10140000 {
 			compatible = "nintendo,3ds-cfg-syscon", "syscon";
 			reg = <0x10140000 0x1000>;
@@ -36,6 +37,7 @@
 			reg = <0x10141000 0x1000>;
 		};
 
+		/* GPIO blocks */
 		hid: hid-controller@10146000 {
 			compatible = "nintendo,3ds-gpio", "basic-mmio-gpio";
 			reg = <0x10146000 0x2>;
@@ -45,16 +47,6 @@
 			#gpio-cells = <2>;
 
 			no-output;
-		};
-
-		pxi: virtio-bridge@10163000 {
-			compatible = "nintendo,3ds-pxi";
-			reg = <0x10163000 0x10>;
-
-			interrupts =
-				<GIC_SPI 0x30 IRQ_TYPE_EDGE_RISING>,
-				<GIC_SPI 0x32 IRQ_TYPE_EDGE_RISING>,
-				<GIC_SPI 0x33 IRQ_TYPE_EDGE_RISING>;
 		};
 
 		gpio0: gpio-controller@10147000 {
@@ -95,18 +87,41 @@
 			#gpio-cells = <2>;
 		};
 
-		gpio3irq: gpio-intc@10147024 {
-			compatible = "nintendo,3ds-gpiointc";
+		gpio3irq: gpio-controller@10147024 {
+			compatible = "nintendo,3ds-gpio", "basic-mmio-gpio";
 			reg = <0x10147024 0x4>;
+			reg-names = "dat";
 
-			gpios = <&gpio3 9 0>, <&gpio3 1 0>;
-			interrupts =
-				<GIC_SPI 0x51 IRQ_TYPE_EDGE_RISING>,
-				<GIC_SPI 0x49 IRQ_TYPE_EDGE_RISING>;
+			gpio-controller;
+			#gpio-cells = <2>;
+		};
+
+		mcuintpin: gpio-intc@9 {
+			compatible = "nintendo,3ds-gpiointc";
+
+			input-gpio = <&gpio3 9 0>;
+			edge-gpio = <&gpio3irq 9 0>;
+			enable-gpio = <&gpio3irq 25 0>;
+
+			interrupts-extended = <&gic GIC_SPI 0x51 IRQ_TYPE_EDGE_RISING>;
 
 			interrupt-controller;
 			#address-cells = <1>;
-			#interrupt-cells = <2>;
+			#interrupt-cells = <1>;
+		};
+
+		irintpin: gpio-intc@1 {
+			compatible = "nintendo,3ds-gpiointc";
+
+			input-gpio = <&gpio3 1 0>;
+			edge-gpio = <&gpio3irq 1 0>;
+			enable-gpio = <&gpio3irq 17 0>;
+
+			interrupts-extended = <&gic GIC_SPI 0x49 IRQ_TYPE_EDGE_RISING>;
+
+			interrupt-controller;
+			#address-cells = <1>;
+			#interrupt-cells = <1>;
 		};
 
 		gpio4: gpio-controller@10147028 {
@@ -118,6 +133,7 @@
 			#gpio-cells = <2>;
 		};
 
+		/* I2C blocks */
 		i2c1: i2c@10161000 {
 			#address-cells = <1>;
 			#size-cells = <0>;
@@ -148,8 +164,7 @@
 					#address-cells = <1>;
 					#interrupt-cells = <2>;
 
-					interrupt-parent = <&gpio3irq>;
-					interrupts = <0 IRQ_TYPE_EDGE_FALLING>;
+					interrupts-extended = <&mcuintpin IRQ_TYPE_EDGE_FALLING>;
 				};
 
 				led: mcu-led {
@@ -214,14 +229,14 @@
 				reg = <0x4d>;
 				clock-frequency = <18432000>;
 
-				interrupt-parent = <&gpio3irq>;
-				interrupts = <1 IRQ_TYPE_EDGE_FALLING>;
+				interrupts-extended = <&irintpin IRQ_TYPE_EDGE_FALLING>;
 
 				gpio-controller;
 				#gpio-cells = <2>;
 			};
 		};
 
+		/* SPI blocks */
 		spi1: spi@10142800 {
 			#address-cells = <1>;
 			#size-cells = <0>;
@@ -269,6 +284,16 @@
 
 				spi-max-frequency = <524288>;
 			};
+		};
+
+		pxi: virtio-bridge@10163000 {
+			compatible = "nintendo,3ds-pxi";
+			reg = <0x10163000 0x10>;
+
+			interrupts =
+				<GIC_SPI 0x30 IRQ_TYPE_EDGE_RISING>,
+				<GIC_SPI 0x32 IRQ_TYPE_EDGE_RISING>,
+				<GIC_SPI 0x33 IRQ_TYPE_EDGE_RISING>;
 		};
 
 		timer: twd-timer@17e00600 {

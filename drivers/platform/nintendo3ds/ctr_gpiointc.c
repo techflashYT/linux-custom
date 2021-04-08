@@ -24,12 +24,9 @@
 struct ctr_gpiointc {
 	struct device *dev;
 
-	int irq_base;
 	struct irq_domain *irqdom;
 	struct irq_chip_generic *irqgc;
 
-	int virq;
-	struct gpio_desc *in_gpio;
 	struct gpio_desc *edge_gpio;
 	struct gpio_desc *en_gpio;
 };
@@ -92,6 +89,7 @@ static int ctr_gpiointc_xlate(struct irq_domain *h, struct device_node *node,
 		return -EINVAL;
 	}
 
+	/* single hwirq per muxer */
 	*out_hwirq = 0;
 	return 0;
 }
@@ -104,15 +102,17 @@ static int ctr_gpiointc_domap(struct platform_device *pdev,
 							struct ctr_gpiointc *intc)
 {
 	int irq;
+	struct gpio_desc *in_gpio;
 	struct device *dev = &pdev->dev;
 
 	irq = platform_get_irq(pdev, 0);
 	if (irq < 0)
 		return irq;
 
-	intc->in_gpio = devm_gpiod_get(dev, "input", GPIOD_IN);
-	if (IS_ERR(intc->in_gpio))
-		return PTR_ERR(intc->in_gpio);
+	/* this only needs to be set to input and retain ownership */
+	in_gpio = devm_gpiod_get(dev, "input", GPIOD_IN);
+	if (IS_ERR(in_gpio))
+		return PTR_ERR(in_gpio);
 
 	intc->edge_gpio = devm_gpiod_get(dev, "edge", GPIOD_OUT_LOW);
 	if (IS_ERR(intc->edge_gpio))
@@ -122,7 +122,6 @@ static int ctr_gpiointc_domap(struct platform_device *pdev,
 	if (IS_ERR(intc->en_gpio))
 		return PTR_ERR(intc->en_gpio);
 
-	intc->virq = irq;
 	return devm_request_irq(dev, irq,
 		ctr_gpiointc_irq, 0, dev_name(dev), intc);
 }
@@ -130,14 +129,15 @@ static int ctr_gpiointc_domap(struct platform_device *pdev,
 static int ctr_gpiointc_initirq(struct device *dev, struct ctr_gpiointc *intc)
 {
 	int err;
+	int irq_base;
 	struct irq_chip_type *ct;
 
-	intc->irq_base = devm_irq_alloc_descs(dev, -1, 0, 1, -1);
-	if (intc->irq_base < 0)
-		return intc->irq_base;
+	irq_base = devm_irq_alloc_descs(dev, -1, 0, 1, -1);
+	if (irq_base < 0)
+		return irq_base;
 
 	intc->irqgc = devm_irq_alloc_generic_chip(dev, dev_name(dev),
-		1, intc->irq_base, NULL, handle_simple_irq);
+		1, irq_base, NULL, handle_simple_irq);
 	if (!intc->irqgc)
 		return -ENOMEM;
 
@@ -154,7 +154,7 @@ static int ctr_gpiointc_initirq(struct device *dev, struct ctr_gpiointc *intc)
 		return err;
 
 	intc->irqdom = irq_domain_add_simple(dev->of_node, 1,
-		intc->irq_base, &ctr_gpiointc_irq_domain_ops, intc);
+		irq_base, &ctr_gpiointc_irq_domain_ops, intc);
 	if (!intc->irqdom)
 		return -ENODEV;
 

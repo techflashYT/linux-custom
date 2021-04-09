@@ -7,7 +7,7 @@
  *  Based on toshsd.c, copyright (C) 2014 Ondrej Zary and 2007 Richard Betts
  */
 
-#define DRIVER_NAME "ctr-sdhc"
+#define DRIVER_NAME "3ds-sdhc"
 #define pr_fmt(fmt)	DRIVER_NAME ": " fmt
 
 #include <linux/io.h>

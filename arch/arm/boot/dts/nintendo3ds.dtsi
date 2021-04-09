@@ -57,6 +57,8 @@
 				<GIC_SPI 0x20 IRQ_TYPE_EDGE_RISING>,
 				<GIC_SPI 0x21 IRQ_TYPE_EDGE_RISING>;
 
+			clocks = <&sdclk>;
+
 			cap-sdio-irq;
 			cap-sd-highspeed;
 		};
@@ -376,7 +378,26 @@
 		compatible = "fixed-clock";
 		#clock-cells = <0>;
 		clock-frequency = <134055928>;
+		clock-accuracy = <100>; /* wishful thinking */
 		clock-output-names = "3ds:refclk134mhz";
+	};
+
+	sdclk: refclk67mhz {
+		compatible = "fixed-factor-clock";
+		clocks = <&refclk>;
+		#clock-cells = <0>;
+		clock-div = <2>;
+		clock-mult = <1>;
+		clock-output-names = "3ds:refclk67mhz";
+	};
+
+	cpuclk: refclk268mhz {
+		compatible = "fixed-factor-clock";
+		clocks = <&refclk>;
+		#clock-cells = <0>;
+		clock-div = <1>;
+		clock-mult = <2>;
+		clock-output-names = "3ds:refclk268mhz";
 	};
 
 	poweroff: poweroff {

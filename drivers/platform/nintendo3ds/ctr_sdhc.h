@@ -5,9 +5,6 @@
  *  Copyright (C) 2021 Santiago Herrera
  */
 
-#define SDHC_HCLK	67027964	/* ~67MHz */
-
-
 /*
  * SD CMD flags
  */
@@ -136,6 +133,7 @@ struct ctr_sdhc {
 	void __iomem *regs;
 
 	struct mmc_host *mmc;
+	struct clk *sdclk;
 
 	spinlock_t lock;
 

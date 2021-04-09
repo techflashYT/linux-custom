@@ -10,24 +10,18 @@
 #define DRIVER_NAME "ctr-sdhc"
 #define pr_fmt(fmt)	DRIVER_NAME ": " fmt
 
+#include <linux/io.h>
+#include <linux/of.h>
+#include <linux/clk.h>
 #include <linux/delay.h>
 #include <linux/device.h>
 #include <linux/module.h>
-#include <linux/scatterlist.h>
-#include <linux/interrupt.h>
-#include <linux/io.h>
-#include <linux/pm.h>
-#include <linux/pm_runtime.h>
-#include <linux/mmc/host.h>
 #include <linux/mmc/mmc.h>
+#include <linux/mmc/host.h>
 #include <linux/mmc/sdio.h>
-
-#include <linux/of.h>
-#include <linux/irq.h>
-#include <linux/init.h>
-#include <linux/slab.h>
-#include <linux/kernel.h>
 #include <linux/interrupt.h>
+#include <linux/pm_runtime.h>
+#include <linux/scatterlist.h>
 #include <linux/platform_device.h>
 #include <linux/mod_devicetable.h>
 
@@ -79,10 +73,22 @@ static void __ctr_sdhc_set_ios(struct mmc_host *mmc, struct mmc_ios *ios)
 {
 	struct ctr_sdhc *host = mmc_priv(mmc);
 
+	switch (ios->power_mode) {
+	case MMC_POWER_OFF:
+		mdelay(1);
+		iowrite16(0, host->regs + SDHC_CARD_CLKCTL);
+		return;
+	case MMC_POWER_UP:
+		break;
+	case MMC_POWER_ON:
+		mdelay(20);
+		break;
+	}
+
 	if (ios->clock) {
 		u16 clk_ctl;
 		int clk_div = -1;
-		unsigned clk_fit = SDHC_HCLK / 2;
+		unsigned clk_fit = clk_get_rate(host->sdclk) / 2;
 
 		while((ios->clock < clk_fit) && (clk_div < 7)) {
 			clk_div++;
@@ -95,17 +101,6 @@ static void __ctr_sdhc_set_ios(struct mmc_host *mmc, struct mmc_ios *ios)
 		mdelay(5);
 	} else {
 		iowrite16(0, host->regs + SDHC_CARD_CLKCTL);
-	}
-
-	switch (ios->power_mode) {
-	case MMC_POWER_OFF:
-		mdelay(1);
-		break;
-	case MMC_POWER_UP:
-		break;
-	case MMC_POWER_ON:
-		mdelay(20);
-		break;
 	}
 
 	switch (ios->bus_width) {
@@ -505,11 +500,22 @@ static int ctr_sdhc_pm_resume(struct device *dev)
 static int ctr_sdhc_probe(struct platform_device *pdev)
 {
 	int ret;
+	struct clk *sdclk;
 	struct device *dev;
 	struct mmc_host *mmc;
+	unsigned long clkrate;
 	struct ctr_sdhc *host;
 
 	dev = &pdev->dev;
+
+	sdclk = devm_clk_get(dev, NULL);
+	if (IS_ERR(sdclk))
+		return PTR_ERR(sdclk);
+
+	ret = clk_prepare_enable(sdclk);
+	if (ret)
+		return ret;
+	clkrate = clk_get_rate(sdclk);
 
 	mmc = mmc_alloc_host(sizeof(struct ctr_sdhc), dev);
 	if (!mmc)
@@ -517,13 +523,16 @@ static int ctr_sdhc_probe(struct platform_device *pdev)
 
 	host = mmc_priv(mmc);
 	host->mmc = mmc;
+	host->sdclk = sdclk;
 
 	host->dev = dev;
 	platform_set_drvdata(pdev, host);
 
 	host->regs = devm_platform_ioremap_resource(pdev, 0);
-	if (IS_ERR(host->regs))
-		return -ENOMEM;
+	if (IS_ERR(host->regs)) {
+		ret = -ENOMEM;
+		goto free_mmc;
+	}
 
 	mmc->ops = &ctr_sdhc_ops;
 	mmc->caps = MMC_CAP_4_BIT_DATA | MMC_CAP_SDIO_IRQ;
@@ -531,8 +540,8 @@ static int ctr_sdhc_probe(struct platform_device *pdev)
 	mmc->max_blk_size = 0x200;
 	mmc->max_blk_count = 0xFFFF;
 
-	mmc->f_min = SDHC_HCLK / 512;
-	mmc->f_max = SDHC_HCLK / 2;
+	mmc->f_min = clkrate / 512;
+	mmc->f_max = clkrate / 2;
 
 	spin_lock_init(&host->lock);
 

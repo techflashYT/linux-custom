@@ -50,7 +50,7 @@
 		};
 
 		nwm: sdhc-controller@10122000 {
-			compatible = "nintendo,ctr-sdhc";
+			compatible = "nintendo,3ds-sdhc";
 			reg = <0x10122000 0x200>;
 
 			interrupts =

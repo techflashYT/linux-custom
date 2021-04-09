@@ -455,6 +455,7 @@ static void vpxi_irq_worker(struct work_struct *work)
 	u64 pending[VPXI_MAX_IRQBANK], any;
 	struct pxi_host *pxi = container_of(work, struct pxi_host, irq_worker);
 
+	any = 0;
 	for (i = 0; i < VPXI_MAX_IRQBANK; i++) { /* get all pending interrupts */
 		pending[i] = vpxi_get_irqbank(pxi, i);
 		any |= pending[i];

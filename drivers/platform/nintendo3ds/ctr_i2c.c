@@ -94,34 +94,28 @@ static int ctr_i2c_recv(struct ctr_i2c *i2c, u8 *byte, unsigned flags)
 	return err;
 }
 
-static int ctr_i2c_stop(struct ctr_i2c *i2c)
-{
-	u8 data;
-	return ctr_i2c_recv(i2c, &data, I2C_CNT_LAST);
-}
-
 static int ctr_i2c_select_device(struct ctr_i2c *i2c, struct i2c_msg *msg)
 {
 	return ctr_i2c_send(i2c, i2c_8bit_addr_from_msg(msg), I2C_CNT_START);
 }
 
-static int ctr_i2c_msg_read(struct ctr_i2c *i2c, u8 *buf, int len)
+static int ctr_i2c_msg_read(struct ctr_i2c *i2c, u8 *buf, int len, bool last)
 {
 	int i;
 	for (i = 0; i < len; i++) {
-		if (ctr_i2c_recv(i2c, &buf[i], I2C_CNT_ERRACK))
+		unsigned flag = (last && (i==(len-1))) ? I2C_CNT_LAST : I2C_CNT_ERRACK;
+		if (ctr_i2c_recv(i2c, &buf[i], flag))
 			return i;
 	}
-
 	return len;
 }
 
-static int ctr_i2c_msg_write(struct ctr_i2c *i2c, u8 *buf, int len)
+static int ctr_i2c_msg_write(struct ctr_i2c *i2c, u8 *buf, int len, bool last)
 {
 	int i;
-
 	for (i = 0; i < len; i++) {
-		if (ctr_i2c_send(i2c, buf[i], 0))
+		unsigned flag = (last && (i==(len-1))) ? I2C_CNT_LAST : 0;
+		if (ctr_i2c_send(i2c, buf[i], flag))
 			return i;
 
 		if (!(ctr_i2c_read_cnt(i2c) & I2C_CNT_ERRACK)) {
@@ -130,7 +124,6 @@ static int ctr_i2c_msg_write(struct ctr_i2c *i2c, u8 *buf, int len)
 			return i;
 		}
 	}
-
 	return len;
 }
 
@@ -151,10 +144,11 @@ static int ctr_i2c_master_xfer(struct i2c_adapter *adap,
 			ctr_i2c_select_device(i2c, msg);
 
 		if (msg->len != 0) {
+			bool last = i == (num-1);
 			if (msg->flags & I2C_M_RD) {
-				plen = ctr_i2c_msg_read(i2c, msg->buf, msg->len);
+				plen = ctr_i2c_msg_read(i2c, msg->buf, msg->len, last);
 			} else {
-				plen = ctr_i2c_msg_write(i2c, msg->buf, msg->len);
+				plen = ctr_i2c_msg_write(i2c, msg->buf, msg->len, last);
 			}
 
 			if (plen != msg->len)
@@ -163,8 +157,6 @@ static int ctr_i2c_master_xfer(struct i2c_adapter *adap,
 
 		msg++;
 	}
-
-	ctr_i2c_stop(i2c);
 
 	return i;
 }

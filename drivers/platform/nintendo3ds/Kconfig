@@ -20,7 +20,8 @@ config CTR_SDHC
 	select MMC
 	default y
 	help
-	  TODO
+	  Add support for driving the 3DS SD Host Controller.
+	  Note: the controller is only used for the wireless chip.
 
 config CTR_PXI
 	tristate "Nintendo 3DS VirtIO bridge"

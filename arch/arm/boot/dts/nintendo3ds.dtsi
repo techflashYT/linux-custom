@@ -39,9 +39,9 @@
 
 		/* GPIO blocks */
 		hid: hid-controller@10146000 {
-			compatible = "nintendo,3ds-gpio", "basic-mmio-gpio";
-			reg = <0x10146000 0x2>;
-			reg-names = "dat";
+			compatible = "nintendo,3ds-gpio";
+			reg = <0x10146000 0x02>;
+			ngpios = <16>;
 
 			gpio-controller;
 			#gpio-cells = <2>;
@@ -74,9 +74,9 @@
 		};
 
 		gpio0: gpio-controller@10147000 {
-			compatible = "nintendo,3ds-gpio", "basic-mmio-gpio";
-			reg = <0x10147000 0x2>;
-			reg-names = "dat";
+			compatible = "nintendo,3ds-gpio";
+			reg = <0x10147000 0x02>;
+			ngpios = <16>;
 
 			gpio-controller;
 			#gpio-cells = <2>;
@@ -85,73 +85,62 @@
 		};
 
 		gpio1: gpio-controller@10147010 {
-			compatible = "nintendo,3ds-gpio", "basic-mmio-gpio";
-			reg = <0x10147010 0x1 0x10147011 0x1>;
-			reg-names = "dat", "dirout";
+			compatible = "nintendo,3ds-gpio";
+			reg = <0x10147010 0x04>;
+			ngpios = <8>;
 
 			gpio-controller;
 			#gpio-cells = <2>;
+
+			interrupt-controller;
+			#interrupt-cells = <2>;
+
+			interrupt-parent = <&gic>;
+			interrupts =
+				<GIC_SPI 0x44 IRQ_TYPE_EDGE_RISING>,
+				<GIC_SPI 0x46 IRQ_TYPE_EDGE_RISING>;
 		};
 
 		gpio2: gpio-controller@10147014 {
-			compatible = "nintendo,3ds-gpio", "basic-mmio-gpio";
-			reg = <0x10147014 0x2>;
-			reg-names = "dat";
+			compatible = "nintendo,3ds-gpio";
+			reg = <0x10147014 0x02>;
+			ngpios = <16>;
 
 			gpio-controller;
 			#gpio-cells = <2>;
 		};
 
 		gpio3: gpio-controller@10147020 {
-			compatible = "nintendo,3ds-gpio", "basic-mmio-gpio";
-			reg = <0x10147020 0x2 0x10147022 0x2>;
-			reg-names = "dat", "dirout";
+			compatible = "nintendo,3ds-gpio";
+			reg = <0x10147020 0x08>;
+			ngpios = <16>;
 
 			gpio-controller;
 			#gpio-cells = <2>;
-		};
 
-		gpio3irq: gpio-controller@10147024 {
-			compatible = "nintendo,3ds-gpio", "basic-mmio-gpio";
-			reg = <0x10147024 0x4>;
-			reg-names = "dat";
-
-			gpio-controller;
-			#gpio-cells = <2>;
-		};
-
-		mcuintpin: gpio-intc@9 {
-			compatible = "nintendo,3ds-gpiointc";
-
-			input-gpio = <&gpio3 9 0>;
-			edge-gpio = <&gpio3irq 9 0>;
-			enable-gpio = <&gpio3irq 25 0>;
-
-			interrupts-extended = <&gic GIC_SPI 0x51 IRQ_TYPE_EDGE_RISING>;
+			interrupt-parent = <&gic>;
+			interrupts =
+				<GIC_SPI 0x48 IRQ_TYPE_EDGE_RISING>,
+				<GIC_SPI 0x49 IRQ_TYPE_EDGE_RISING>,
+				<GIC_SPI 0x4A IRQ_TYPE_EDGE_RISING>,
+				<GIC_SPI 0x4B IRQ_TYPE_EDGE_RISING>,
+				<GIC_SPI 0x4C IRQ_TYPE_EDGE_RISING>,
+				<GIC_SPI 0x4D IRQ_TYPE_EDGE_RISING>,
+				<GIC_SPI 0x4E IRQ_TYPE_EDGE_RISING>,
+				<GIC_SPI 0x4F IRQ_TYPE_EDGE_RISING>,
+				<GIC_SPI 0x50 IRQ_TYPE_EDGE_RISING>,
+				<GIC_SPI 0x51 IRQ_TYPE_EDGE_RISING>,
+				<GIC_SPI 0x52 IRQ_TYPE_EDGE_RISING>,
+				<GIC_SPI 0x53 IRQ_TYPE_EDGE_RISING>;
 
 			interrupt-controller;
-			#address-cells = <1>;
-			#interrupt-cells = <1>;
-		};
-
-		irintpin: gpio-intc@1 {
-			compatible = "nintendo,3ds-gpiointc";
-
-			input-gpio = <&gpio3 1 0>;
-			edge-gpio = <&gpio3irq 1 0>;
-			enable-gpio = <&gpio3irq 17 0>;
-
-			interrupts-extended = <&gic GIC_SPI 0x49 IRQ_TYPE_EDGE_RISING>;
-
-			interrupt-controller;
-			#address-cells = <1>;
-			#interrupt-cells = <1>;
+			#interrupt-cells = <2>;
 		};
 
 		gpio4: gpio-controller@10147028 {
-			compatible = "nintendo,3ds-gpio", "basic-mmio-gpio";
-			reg = <0x10147028 0x2>;
-			reg-names = "dat";
+			compatible = "nintendo,3ds-gpio";
+			reg = <0x10147028 0x02>;
+			ngpios = <16>;
 
 			gpio-controller;
 			#gpio-cells = <2>;
@@ -188,7 +177,7 @@
 					#address-cells = <1>;
 					#interrupt-cells = <2>;
 
-					interrupts-extended = <&mcuintpin IRQ_TYPE_EDGE_FALLING>;
+					interrupts-extended = <&gpio3 9 IRQ_TYPE_EDGE_FALLING>;
 				};
 
 				led: mcu-led {
@@ -253,7 +242,7 @@
 				reg = <0x4d>;
 				clock-frequency = <18432000>;
 
-				interrupts-extended = <&irintpin IRQ_TYPE_EDGE_FALLING>;
+				interrupts-extended = <&gpio3 1 IRQ_TYPE_EDGE_FALLING>;
 
 				gpio-controller;
 				#gpio-cells = <2>;

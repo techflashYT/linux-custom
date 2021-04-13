@@ -15,6 +15,16 @@ menuconfig NINTENDO3DS_PLATFORM_DEVICES
 
 if NINTENDO3DS_PLATFORM_DEVICES
 
+config CTR_GPIO
+	tristate "Nintendo 3DS GPIO driver"
+	select GPIOLIB
+	select GPIO_GENERIC
+	select GPIOLIB_IRQCHIP
+	default y
+	help
+	  Allows controlling the GPIO bits and can
+	  act as an interrupt controller.
+
 config CTR_SDHC
 	tristate "Nintendo 3DS SD Host Controller"
 	select MMC

@@ -396,13 +396,6 @@
 		clock-output-names = "3ds:xtal18mhz";
 	};
 
-	irclk: xtal1_8mhz {
-		compatible = "fixed-clock";
-		#clock-cells = <0>;
-		clock-frequency = <1843200>;
-		clock-output-names = "3ds:xtal1_8mhz";
-	};
-
 	poweroff: poweroff {
 		compatible = "regulator-poweroff";
 		cpu-supply = <&pwroff_reg>;

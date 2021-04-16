@@ -18290,6 +18290,18 @@ L:	linux-input@vger.kernel.org
 S:	Maintained
 F:	drivers/hid/hid-nintendo*
 
+NINTENDO 3DS
+M:	Santiago Herrera <soherrera1@hotmail.com>
+M:	Sergi Granell <xerpi.g.12@gmail.com>
+M:	Nick Desaulniers <nick.desaulniers@gmail.com>
+S:	Maintained
+W:	https://github.com/linux-3ds
+T:	git git://github.com/linux-3ds/linux
+F:	arch/arm/boot/dts/nintendo3ds*
+F:	arch/arm/mach-ctr/
+F:	arch/arm/configs/nintendo3ds_defconfig
+F:	drivers/platform/nintendo3ds/
+
 NIOS2 ARCHITECTURE
 M:	Dinh Nguyen <dinguyen@kernel.org>
 S:	Maintained

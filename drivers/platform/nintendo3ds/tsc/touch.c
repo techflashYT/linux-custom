@@ -33,8 +33,8 @@ int nintendo3ds_bottom_lcd_draw_text(const struct font_desc *font, int x, int y,
 #define CIRCLE_PAD_THRESHOLD		150
 #define CIRCLE_PAD_FACTOR		150
 
-#define VKB_ROWS (6)
-#define VKB_COLS (17)
+#define VKB_ROWS (8)
+#define VKB_COLS (14)
 
 
 #define LEFT_SHIFTED  BIT(0)
@@ -72,28 +72,31 @@ struct touch_fifo_data {
 
 /* VKB stuff */
 static const char *vkb_map_normal[VKB_ROWS][VKB_COLS] = {
-	{"Es", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "PSc", "SLk", "Bk"},
-	{"`", "1", "2", "3", "4", "5", "6", "7", "8", "9", "0", "-", "=", "BSp", "Ins", "Hom", "PU"},
-	{"<>", "q", "w", "e", "r", "t", "y", "u", "i", "o", "p", "[", "]", " \\", "Del", "End", "PD"},
-	{"Cap", "a", "s", "d", "f", "g", "h", "j", "k", "l", ";", "'", "Ent", NULL, NULL, NULL, NULL},
-	{"LShf", "z", "x", "c", "v", "b", "n", "m", ",", ".", "/", "RShf", NULL, NULL, NULL, NULL, NULL},
-	{"Ctl", "M", "Alt", "Space", "Alt", "M", "Mnu", "Ctl", NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL}
+	{"Psc", "SLk", "Ps", "Ins", "Del", "Hom", "End", "PU", "PD", NULL, NULL, NULL, NULL, NULL},
+	{" Esc ", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", NULL},
+	{" ` ", "1", "2", "3", "4", "5", "6", "7", "8", "9", "0", "-", "=", "BaSp"},
+	{"Tab ", "q", "w", "e", "r", "t", "y", "u", "i", "o", "p", "[", "]", " \\ "},
+	{"Caps ", "a", "s", "d", "f", "g", "h", "j", "k", "l", ";", "'", "Entr", NULL},
+	{"LShif ", "z", "x", "c", "v", "b", "n", "m", ",", ".", "/", "RShif", NULL, NULL},
+	{"Ctrl ", "M", "Alt", "Space", "Alt", "M", "Mnu", "Ctrl", NULL, NULL, NULL, NULL, NULL, NULL}
 };
 static const char *vkb_map_shift[VKB_ROWS][VKB_COLS] = {
-	{"Es", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "PSc", "SLk", "Bk"},
-	{"`", "!", "@", "#", "$", "%", "^", "&", "*", "(", ")", "_", "+", "BSp", "Ins", "Hom", "PU"},
-	{"<>", "Q", "W", "E", "R", "T", "Y", "U", "I", "O", "P", "{", "}", " |", "Del", "End", "PD"},
-	{"Cap", "A", "S", "D", "F", "G", "H", "J", "K", "L", ":", "\"", "Ent", NULL, NULL, NULL, NULL},
-	{"LShf", "Z", "X", "C", "V", "B", "N", "M", "<", ">", "?", "RShf", NULL, NULL, NULL, NULL, NULL},
-	{"Ctl", "M", "Alt", "Space", "Alt", "M", "Mnu", "Ctl", NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL}
+	{"Psc", "SLk", "Ps", "Ins", "Del", "Hom", "End", "PU", "PD", NULL, NULL, NULL, NULL, NULL},
+	{"Esc  ", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", NULL},
+	{"`  ", "!", "@", "#", "$", "%", "^", "&", "*", "(", ")", "_", "+", "BaSp"},
+	{"Tab ", "Q", "W", "E", "R", "T", "Y", "U", "I", "O", "P", "{", "}", "  |"},
+	{"Caps ", "A", "S", "D", "F", "G", "H", "J", "K", "L", ":", "\"", "Entr", NULL},
+	{"LShif ", "Z", "X", "C", "V", "B", "N", "M", "<", ">", "?", "RShif", NULL, NULL},
+	{"Ctrl ", "M", "Alt", "Space", "Alt", "M", "Mnu", "Ctrl", NULL, NULL, NULL, NULL, NULL, NULL}
 };
 static const char vkb_map_keys[VKB_ROWS][VKB_COLS] = {
-	{KEY_ESC, KEY_F1, KEY_F2, KEY_F3, KEY_F4, KEY_F5, KEY_F6, KEY_F7, KEY_F8, KEY_F9, KEY_F10, KEY_F11, KEY_F12, KEY_SYSRQ, KEY_SCROLLLOCK, KEY_PAUSE},
-	{KEY_GRAVE, KEY_1, KEY_2, KEY_3, KEY_4, KEY_5, KEY_6, KEY_7, KEY_8, KEY_9, KEY_0, KEY_MINUS, KEY_EQUAL, KEY_BACKSPACE, KEY_INSERT, KEY_HOME, KEY_PAGEUP},
-	{KEY_TAB, KEY_Q, KEY_W, KEY_E, KEY_R, KEY_T, KEY_Y, KEY_U, KEY_I, KEY_O, KEY_P, KEY_LEFTBRACE, KEY_RIGHTBRACE, KEY_BACKSLASH, KEY_DELETE, KEY_END, KEY_PAGEDOWN},
-	{KEY_CAPSLOCK, KEY_A, KEY_S, KEY_D, KEY_F, KEY_G, KEY_H, KEY_J, KEY_K, KEY_L, KEY_SEMICOLON, KEY_APOSTROPHE, KEY_ENTER, 0, 0, 0, 0},
-	{KEY_LEFTSHIFT, KEY_Z, KEY_X, KEY_C, KEY_V, KEY_B, KEY_N, KEY_M, KEY_COMMA, KEY_DOT, KEY_SLASH, KEY_RIGHTSHIFT, 0, 0, 0, 0, 0},
-	{KEY_LEFTCTRL, KEY_LEFTMETA, KEY_LEFTALT, KEY_SPACE, KEY_RIGHTALT, KEY_RIGHTMETA, KEY_MENU, KEY_RIGHTCTRL, 0, 0, 0, 0, 0, 0, 0, 0, 0}
+	{KEY_SYSRQ, KEY_SCROLLLOCK, KEY_PAUSE, KEY_INSERT, KEY_DELETE, KEY_HOME, KEY_END, KEY_PAGEUP, KEY_PAGEDOWN, 0, 0, 0, 0, 0},
+	{KEY_ESC, KEY_F1, KEY_F2, KEY_F3, KEY_F4, KEY_F5, KEY_F6, KEY_F7, KEY_F8, KEY_F9, KEY_F10, KEY_F11, KEY_F12, 0},
+	{KEY_GRAVE, KEY_1, KEY_2, KEY_3, KEY_4, KEY_5, KEY_6, KEY_7, KEY_8, KEY_9, KEY_0, KEY_MINUS, KEY_EQUAL, KEY_BACKSPACE},
+	{KEY_TAB, KEY_Q, KEY_W, KEY_E, KEY_R, KEY_T, KEY_Y, KEY_U, KEY_I, KEY_O, KEY_P, KEY_LEFTBRACE, KEY_RIGHTBRACE, KEY_BACKSLASH},
+	{KEY_CAPSLOCK, KEY_A, KEY_S, KEY_D, KEY_F, KEY_G, KEY_H, KEY_J, KEY_K, KEY_L, KEY_SEMICOLON, KEY_APOSTROPHE, KEY_ENTER, 0},
+	{KEY_LEFTSHIFT, KEY_Z, KEY_X, KEY_C, KEY_V, KEY_B, KEY_N, KEY_M, KEY_COMMA, KEY_DOT, KEY_SLASH, KEY_RIGHTSHIFT, 0, 0},
+	{KEY_LEFTCTRL, KEY_LEFTMETA, KEY_LEFTALT, KEY_SPACE, KEY_RIGHTALT, KEY_RIGHTMETA, KEY_MENU, KEY_RIGHTCTRL, 0, 0, 0, 0, 0, 0}
 };
 
 static void vkb_draw_key(const struct vkb_ctx_t *vkb, int row, int col) {
@@ -106,7 +109,7 @@ static void vkb_draw_key(const struct vkb_ctx_t *vkb, int row, int col) {
 
 	if(vkb->shifted) {
 		if(vkb_map_shift[row][col]) {
-			if (row == 0 || row == 5 || vkb_map_normal[row][col][1] != '\0')
+			if (row == 1 || row == 6 || vkb_map_normal[row][col][1] != '\0')
 				nintendo3ds_bottom_lcd_draw_text(vkb->font, vkb->x_offsets[row][col], row * vkb->font->height * 2, COLOR_BLACK, color,
 						                               vkb_map_shift[row][col]);
 			else
@@ -115,7 +118,7 @@ static void vkb_draw_key(const struct vkb_ctx_t *vkb, int row, int col) {
 		}
 	} else {
 		if(vkb_map_normal[row][col]) {
-			if (row == 0 || row == 5 || vkb_map_normal[row][col][1] != '\0')
+			if (row == 1 || row == 6 || vkb_map_normal[row][col][1] != '\0')
 				nintendo3ds_bottom_lcd_draw_text(vkb->font, vkb->x_offsets[row][col], row * vkb->font->height * 2, COLOR_BLACK, color,
 						                               vkb_map_normal[row][col]);
 			else
@@ -140,7 +143,7 @@ static int vkb_init(struct vkb_ctx_t *vkb)
 {
 	int x, i, j;
 
-	vkb->font = get_default_font(320, 240, -1, -1);
+	vkb->font = find_font("10x18");
 	vkb->last_key = 0;
 	vkb->locked_key = false;
 	vkb->shifted = false;
@@ -154,8 +157,8 @@ static int vkb_init(struct vkb_ctx_t *vkb)
 				continue;
 			}
 			vkb->x_offsets[j][i] = x;
-			vkb->x_sizes[j][i] = (strlen(vkb_map_normal[j][i]) + 1) * vkb->font->width;
-			x += vkb->x_sizes[j][i];
+			vkb->x_sizes[j][i] = strlen(vkb_map_normal[j][i]) * vkb->font->width;
+			x = x + vkb->x_sizes[j][i] + vkb->font->width;
 		}
 	}
 

@@ -91,18 +91,19 @@ void nintendo3ds_bottom_lcd_clear_screen(unsigned int color)
 
 void nintendo3ds_bottom_lcd_draw_char(const struct font_desc *font, int x, int y, unsigned int color, char c)
 {
-	int i, j;
-	const u8 *src;
+    int i, j, k;
+    int bytes_per_char = DIV_ROUND_UP(font->width, 8) * font->height;
+    const u8 *src = (u8 *)font->data + c * bytes_per_char;
 
-	src = font->data + c * font->height;
-
-	for (i = 0; i < 8; i++) {
-		for (j = 0; j < 8; j++) {
-			if ((*src & (128 >> j)))
-				nintendo3ds_bottom_lcd_draw_pixel(x+j, y+i, color);
-		}
-		src++;
-	}
+    for (i = 0; i < font->height; i++) {
+        for (j = 0; j < font->width;) {
+            for (k = 0; j < font->width && k < 8; j++, k++) {
+                if (*src & BIT(7 - k))
+                    nintendo3ds_bottom_lcd_draw_pixel(x + j, y + i, color);
+            }
+            src++;
+        }
+    }
 }
 
 int nintendo3ds_bottom_lcd_draw_text(const struct font_desc *font, int x, int y, unsigned int fgcolor, unsigned int bgcolor, const char *text)
@@ -118,8 +119,10 @@ int nintendo3ds_bottom_lcd_draw_text(const struct font_desc *font, int x, int y,
 			x = sx;
 			y += font->height;
 		} else if (c == ' ') {
+			nintendo3ds_bottom_lcd_draw_fillrect(x, y, font->width, font->height, bgcolor);
 			x += font->width;
 		} else if(c == '\t') {
+			nintendo3ds_bottom_lcd_draw_fillrect(x, y, font->width * 4, font->height, bgcolor);
 			x += 4 * font->width;
 		} else {
 			nintendo3ds_bottom_lcd_draw_fillrect(x, y, font->width, font->height, bgcolor);

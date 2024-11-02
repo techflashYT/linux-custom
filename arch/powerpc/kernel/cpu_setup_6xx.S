@@ -69,9 +69,9 @@ _GLOBAL(__setup_cpu_750fx)
 _GLOBAL(__setup_cpu_espresso)
 	mflr	r5
 	bl	__init_fpu_registers
+	bl	setup_espresso
 	bl	setup_common_caches
 	bl	setup_750_7400_hid0
-	bl	setup_espresso
 	mtlr	r5
 	blr
 _GLOBAL(__setup_cpu_7400)
@@ -246,6 +246,39 @@ SYM_FUNC_START_LOCAL(setup_espresso)
 	mtspr SPRN_HID5_ESPRESSO, r8
 	sync
 
+	// ash: where does r24 come from here?
+	cmpwi 0, r24, 0
+	bne espresso_not_core_0
+
+	// Disable keystores and bootrom (ash: probably not needed)
+	mfspr r8, SPRN_SCR_ESPRESSO
+	lis r9, 0x4000
+	andc r8, r8, r9
+	mtspr SPRN_SCR_ESPRESSO, r8
+	sync
+	isync
+
+	// Set ancast keyset (ash: probably not needed)
+	mfspr r8, SPRN_SCR_ESPRESSO
+	oris r8, r8, 0x8000
+	mtspr SPRN_SCR_ESPRESSO, r8
+	sync
+	isync
+
+	mfspr r8, SPRN_CAR_ESPRESSO
+	oris r8, r8, 0xfc10
+	mtspr SPRN_CAR_ESPRESSO, r8
+	sync
+	isync
+
+	mfspr r8, SPRN_BCR_ESPRESSO
+	oris r8, r8, 0x0800
+	mtspr SPRN_BCR_ESPRESSO, r8
+	sync
+	isync
+
+espresso_not_core_0:
+
 	lis r8, 0xb3b0 // 64B fetch, depth 4, SBE, ST0, LPE, L2MUM, L2CFI
 	mtspr SPRN_HID4_GEKKO, r8
 	sync
@@ -386,6 +419,10 @@ _GLOBAL(__save_cpu_setup)
 
 	/* Save HID0 (common to all CONFIG_PPC_BOOK3S_32 cpus) */
 	mfspr	r3,SPRN_HID0
+	/* Mask out the cache & DPM bits */
+	lis	r4,0xffef
+	ori	r4,r4,0x3fff
+	and	r3,r3,r4
 	stw	r3,CS_HID0(r5)
 
 	/* Now deal with CPU type dependent registers */

@@ -631,6 +631,10 @@
 #define SPRN_HID4_GEKKO	0x3F3		/* Gekko HID4 */
 #define SPRN_HID5	0x3F6		/* 970 HID5 */
 #define SPRN_HID5_ESPRESSO 0x3B0	/* Espresso HID5 */
+#define SPRN_SCR_ESPRESSO 0x3B3		/* Espresso SCR */
+#define SPRN_PIR_ESPRESSO 0x3EF		/* Espresso PIR */
+#define SPRN_CAR_ESPRESSO 0x3B4		/* Espresso CAR */
+#define SPRN_BCR_ESPRESSO 0x3B5		/* Espresso BCR */
 #define SPRN_HID6	0x3F9	/* BE HID 6 */
 #define   HID6_LB	(0x0F<<12) /* Concurrent Large Page Modes */
 #define   HID6_DLP	(1<<20)	/* Disable all large page modes (4K only) */

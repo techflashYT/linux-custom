@@ -610,7 +610,7 @@ ALT_MMU_FTR_SECTION_END_IFSET(MMU_FTR_NEED_DTLB_SW_LRU)
 #define altivec_assist_exception	unknown_exception
 #endif
 
-#ifndef CONFIG_TAU_INT
+#if !defined(CONFIG_TAU_INT) && !defined(CONFIG_WIIU)
 #define TAUException	unknown_async_exception
 #endif
 
@@ -791,6 +791,31 @@ _GLOBAL(copy_and_flush)
 	blr
 
 #ifdef CONFIG_SMP
+	.globl __secondary_start_wiiu
+__secondary_start_wiiu:
+	mfspr	r3, SPRN_HID5_ESPRESSO
+	/* Enable HID5 and PIR */
+	oris	r3, r3, 0xe000
+	mtspr	SPRN_HID5_ESPRESSO, r3
+	isync
+
+	mfspr	r3, SPRN_PIR_ESPRESSO
+	stw	r3, __secondary_hold_acknowledge@l(0)
+	mr	r24, r3 // ash: this might be where it comes from in setup_cpu_espresso..?
+
+	// Disable and re-enable L2 cache
+	li	r3, 0
+	bl	_set_L2CR
+
+	lis	r3, 0x8020
+	// On core 1, the cache is bigger!
+	cmpwi	0, r24, 1
+	bne	1f
+	oris	r3, r3, 0x2000
+	// Enable the cache and finish
+1:	bl _set_L2CR
+	b __secondary_start
+
 	.globl __secondary_start_mpc86xx
 __secondary_start_mpc86xx:
 	mfspr	r3, SPRN_PIR

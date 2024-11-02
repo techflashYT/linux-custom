@@ -53,65 +53,6 @@ void latteipc_starbuck_msg(u32 msg) {
 }
 
 /*
- * Causes an interrupt on another CPU. We'll use the IPC Y1 flag for this and just pretend to be the Starbuck
- * to trigger it.
- */
-void latteipc_ipi_cpu(int cpu) {
-	lt_ipc_t *target_ipc = per_cpu(latteipc_io_latte, cpu);
-	printk("%s: ipi to %d\n", __func__, cpu);
-	setbits32(&target_ipc->iopctrl, LT_IPC_IOPCTRL_Y1);
-}
-
-static irqreturn_t latteipc_ipi_intr(int irq, void *d) {
-	lt_ipc_t *ipc = this_cpu_ptr(latteipc_io_latte);
-	// ack the irq
-	setbits32(&ipc->ppcctrl, LT_IPC_PPCCTRL_Y1);
-
-#ifdef CONFIG_SMP
-	smp_ipi_demux();
-#endif
-	return IRQ_HANDLED;
-}
-
-void __init latteipc_setup_ipis(void) {
-	unsigned cpu;
-	int irq, err;
-	struct device_node *np;
-	unsigned long res;
-
-	np = of_find_compatible_node(NULL, NULL, "nintendo,latte-ipc");
-	if (!np) {
-		udbg_printf("%s: IPC node not found\n", __func__);
-		return;
-	}
-
-	for_each_present_cpu (cpu) {
-		lt_ipc_t **ipc = per_cpu_ptr(&latteipc_io_latte, cpu);
-
-		pr_info("starting IPC on %08x (cpu %d)\n", (unsigned)*ipc, cpu);
-		// Ack and enable interrupts for Y1
-		setbits32(&(*ipc)->ppcctrl, LT_IPC_PPCCTRL_IY1 | LT_IPC_PPCCTRL_Y1);
-		res = ioread32(&(*ipc)->ppcctrl);
-
-		irq = irq_of_parse_and_map(np, cpu + 1); // +1 to skip over compat-mode IRQ
-		if (!irq) {
-			pr_err("%s: Failed to map IRQ!\n", __func__);
-			goto out;
-		}
-
-		pr_info("requesting IRQ #%d (%08lx)\n", irq, res);
-
-		err = request_irq(irq, latteipc_ipi_intr, IRQF_PERCPU | IRQF_NO_THREAD | IRQF_NO_SUSPEND, "IPI", NULL);
-		WARN(err < 0, "unable to request IPI %d for core %u\n", irq, cpu);
-	}
-
-	pr_info("<- %s\n", __func__);
-
-out:
-	of_node_put(np);
-}
-
-/*
  * Maps and initialises the IPC controller hardware.
  */
 static void __init latteipc_setup_ipc_dev(struct device_node *np)

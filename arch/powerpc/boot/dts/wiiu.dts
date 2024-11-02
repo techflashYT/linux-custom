@@ -21,10 +21,10 @@
 		device_type = "memory";
 		reg = <0x00000000 0x02000000>;	/* MEM1 - 32MiB */
 	};
-	memory@8000000 {
-		device_type = "memory";
-		reg = <0x08000000 0x00300000>;	/* MEM0 - 3MiB  */
-	};
+//	memory@8000000 {
+//		device_type = "memory";
+//		reg = <0x08000000 0x00300000>;	/* MEM0 - 3MiB  */
+//	};
 	memory@10000000 {
 		device_type = "memory";
 		reg = <0x10000000 0x80000000>;	/* MEM2 - 2GiB  */
@@ -61,7 +61,6 @@
 		#address-cells = <1>;
 		#size-cells = <0>;
 
-		/* TODO: Add SMP */
 		PowerPC,espresso@0 {
 			device_type = "cpu";
 			reg = <0>;
@@ -78,6 +77,56 @@
 			d-cache-sets = <128>;
 			next-level-cache = <&L2_0>;
 			L2_0:l2-cache {
+				compatible = "cache";
+				cache-level = <2>;
+				cache-unified;
+				cache-size = <0x80000>; /* 512KB L2 */
+				cache-line-size = <64>;
+				cache-block-size = <32>;
+				cache-sets = <2048>;
+			};
+		};
+		PowerPC,espresso@1 {
+			device_type = "cpu";
+			reg = <1>;
+			clock-frequency = <1243125000>;     /* 1.243125GHz */
+			bus-frequency = <248625000>;        /* 248.625MHz core-to-bus 5x */
+			timebase-frequency = <62156250>;    /* 1/4 of the bus clock */
+			i-cache-size = <32768>; /* 32K icache */
+			i-cache-line-size = <32>;
+			i-cache-block-size = <32>;
+			i-cache-sets = <128>;
+			d-cache-size = <32768>; /* 32K dcache */
+			d-cache-line-size = <32>;
+			d-cache-block-size = <32>;
+			d-cache-sets = <128>;
+			next-level-cache = <&L2_1>;
+			L2_1:l2-cache {
+				compatible = "cache";
+				cache-level = <2>;
+				cache-unified;
+				cache-size = <0x200000>; /* 2048KB L2 */
+				cache-line-size = <64>;
+				cache-block-size = <32>;
+				cache-sets = <2048>;
+			};
+		};
+		PowerPC,espresso@2 {
+			device_type = "cpu";
+			reg = <2>;
+			clock-frequency = <1243125000>;     /* 1.243125GHz */
+			bus-frequency = <248625000>;        /* 248.625MHz core-to-bus 5x */
+			timebase-frequency = <62156250>;    /* 1/4 of the bus clock */
+			i-cache-size = <32768>; /* 32K icache */
+			i-cache-line-size = <32>;
+			i-cache-block-size = <32>;
+			i-cache-sets = <128>;
+			d-cache-size = <32768>; /* 32K dcache */
+			d-cache-line-size = <32>;
+			d-cache-block-size = <32>;
+			d-cache-sets = <128>;
+			next-level-cache = <&L2_2>;
+			L2_2:l2-cache {
 				compatible = "cache";
 				cache-level = <2>;
 				cache-unified;
@@ -253,7 +302,7 @@
 
 		latte_exi: exi@0d806800 {
 			compatible = "nintendo,latte-exi", "nintendo,hollywood-exi", "nintendo,flipper-exi";
-			reg = <0x0d806800 0x40>;
+			reg = <0x0d806800 0x60>;
 		};
 
 		gpio: gpio@d8000c0 {

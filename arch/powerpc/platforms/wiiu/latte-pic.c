@@ -30,21 +30,16 @@ static DEFINE_PER_CPU(struct lt_pic *, lt_pic_cpu);
  * These handle both AHBALL and AHBLT IRQs, with AHBLT mapped above 32
  */
 
-static void latte_pic_mask_and_ack(struct irq_data *d)
+static void latte_pic_ack_irq(struct lt_pic *pic, u32 irq)
 {
-	struct lt_pic *pic = *this_cpu_ptr(&lt_pic_cpu);
-	u32 irq = irqd_to_hwirq(d);
-
 	if (irq < LATTE_AHBALL_NR_IRQS) {
 		u32 mask = 1 << irq;
 
 		out_be32(&pic->ahball_icr, mask);
-		clrbits32(&pic->ahball_imr, mask);
 	} else {
 		u32 mask = 1 << (irq - 32);
 
 		out_be32(&pic->ahblt_icr, mask);
-		clrbits32(&pic->ahblt_imr, mask);
 	}
 }
 
@@ -53,22 +48,11 @@ static void latte_pic_ack(struct irq_data *d)
 	struct lt_pic *pic = *this_cpu_ptr(&lt_pic_cpu);
 	u32 irq = irqd_to_hwirq(d);
 
-	if (irq < LATTE_AHBALL_NR_IRQS) {
-		u32 mask = 1 << irq;
-
-		out_be32(&pic->ahball_icr, mask);
-	} else {
-		u32 mask = 1 << (irq - 32);
-
-		out_be32(&pic->ahblt_icr, mask);
-	}
+	latte_pic_ack_irq(pic, irq);
 }
 
-static void latte_pic_mask(struct irq_data *d)
+static void latte_pic_mask_irq(struct lt_pic *pic, u32 irq)
 {
-	struct lt_pic *pic = *this_cpu_ptr(&lt_pic_cpu);
-	u32 irq = irqd_to_hwirq(d);
-
 	if (irq < LATTE_AHBALL_NR_IRQS) {
 		u32 mask = 1 << irq;
 
@@ -80,11 +64,16 @@ static void latte_pic_mask(struct irq_data *d)
 	}
 }
 
-static void latte_pic_unmask(struct irq_data *d)
+static void latte_pic_mask(struct irq_data *d)
 {
 	struct lt_pic *pic = *this_cpu_ptr(&lt_pic_cpu);
 	u32 irq = irqd_to_hwirq(d);
 
+	latte_pic_mask_irq(pic, irq);
+}
+
+static void latte_pic_unmask_irq(struct lt_pic *pic, u32 irq)
+{
 	if (irq < LATTE_AHBALL_NR_IRQS) {
 		u32 mask = 1 << irq;
 
@@ -96,12 +85,56 @@ static void latte_pic_unmask(struct irq_data *d)
 	}
 }
 
+static void latte_pic_unmask(struct irq_data *d)
+{
+	struct lt_pic *pic = *this_cpu_ptr(&lt_pic_cpu);
+	u32 irq = irqd_to_hwirq(d);
+
+	latte_pic_unmask_irq(pic, irq);
+}
+
+static void latte_pic_mask_and_ack(struct irq_data *d)
+{
+	struct lt_pic *pic = *this_cpu_ptr(&lt_pic_cpu);
+	u32 irq = irqd_to_hwirq(d);
+
+	latte_pic_mask_irq(pic, irq);
+	latte_pic_ack_irq(pic, irq);
+}
+
+static int latte_pic_set_affinity(struct irq_data *data, const struct cpumask *dest, bool force)
+{
+	// HACK: we shouldn't just give every irq to cpu 0, it's unfair!
+	int cpu, target_cpu = 0;//irq_choose_cpu(dest);
+	struct lt_pic *target_pic = *per_cpu_ptr(&lt_pic_cpu, target_cpu);
+	u32 irq = irqd_to_hwirq(data);
+
+	if (!cpumask_test_cpu(target_cpu, dest))
+		pr_debug("%s: Kernel didn't want cpu %d. Doing it anyway\n", __func__, cpu);
+
+	for_each_present_cpu(cpu) {
+		struct lt_pic *pic = *per_cpu_ptr(&lt_pic_cpu, cpu);
+
+		// First, unsubscribe everyone.
+		latte_pic_mask_irq(pic, irq);
+		latte_pic_ack_irq(pic, irq);
+		pr_debug("%s: removed irq %d from cpu %d\n", __func__, irq, cpu);
+	}
+
+	// Give it to our target.
+	latte_pic_unmask_irq(target_pic, irq);
+	pr_debug("%s: giving irq %d to cpu %d\n", __func__, irq, target_cpu);
+
+	return IRQ_SET_MASK_OK;
+}
+
 static struct irq_chip latte_pic = {
-	.name = "latte-pic",
-	.irq_ack = latte_pic_ack,
-	.irq_mask_ack = latte_pic_mask_and_ack,
-	.irq_mask = latte_pic_mask,
-	.irq_unmask = latte_pic_unmask,
+	.name			= "latte-pic",
+	.irq_ack		= latte_pic_ack,
+	.irq_mask_ack		= latte_pic_mask_and_ack,
+	.irq_mask		= latte_pic_mask,
+	.irq_unmask		= latte_pic_unmask,
+	.irq_set_affinity	= latte_pic_set_affinity
 };
 
 /*

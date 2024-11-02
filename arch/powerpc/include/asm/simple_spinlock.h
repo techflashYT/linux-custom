@@ -20,6 +20,7 @@
 #include <asm/paca.h>
 #include <asm/synch.h>
 #include <asm/ppc-opcode.h>
+#include <asm/asm-espresso.h>
 
 #ifdef CONFIG_PPC64
 /* use 0x800000yy when locked, where yy == CPU number */
@@ -55,8 +56,9 @@ static inline unsigned long __arch_spin_trylock(arch_spinlock_t *lock)
 	__asm__ __volatile__(
 "1:	lwarx		%0,0,%2,%[eh]\n\
 	cmpwi		0,%0,0\n\
-	bne-		2f\n\
-	stwcx.		%1,0,%2\n\
+	bne-		2f\n"
+	PPCESPRESSO_ERRATA(0,%2)
+"	stwcx.		%1,0,%2\n\
 	bne-		1b\n"
 	PPC_ACQUIRE_BARRIER
 "2:"
@@ -166,6 +168,7 @@ static inline long __arch_read_trylock(arch_rwlock_t *rw)
 	__DO_SIGN_EXTEND
 "	addic.		%0,%0,1\n\
 	ble-		2f\n"
+	PPCESPRESSO_ERRATA(0,%1)
 "	stwcx.		%0,0,%1\n\
 	bne-		1b\n"
 	PPC_ACQUIRE_BARRIER
@@ -190,6 +193,7 @@ static inline long __arch_write_trylock(arch_rwlock_t *rw)
 "1:	lwarx		%0,0,%2,%[eh]\n\
 	cmpwi		0,%0,0\n\
 	bne-		2f\n"
+	PPCESPRESSO_ERRATA(0,%2)
 "	stwcx.		%1,0,%2\n\
 	bne-		1b\n"
 	PPC_ACQUIRE_BARRIER
@@ -247,6 +251,7 @@ static inline void arch_read_unlock(arch_rwlock_t *rw)
 	PPC_RELEASE_BARRIER
 "1:	lwarx		%0,0,%1\n\
 	addic		%0,%0,-1\n"
+	PPCESPRESSO_ERRATA(0,%1)
 "	stwcx.		%0,0,%1\n\
 	bne-		1b"
 	: "=&r"(tmp)

@@ -3,6 +3,7 @@
 #define _ASM_POWERPC_BOOK3S_32_PGTABLE_H
 
 #include <asm-generic/pgtable-nopmd.h>
+#include <asm/asm-espresso.h>
 
 /*
  * The "classic" 32-bit implementation of the PowerPC MMU uses a hash
@@ -274,6 +275,7 @@ static inline pte_basic_t pte_update(struct mm_struct *mm, unsigned long addr, p
 	"	andc	%1, %L0, %4\n"
 #endif
 	"	or	%1, %1, %5\n"
+		PPCESPRESSO_ERRATA(0,%3)
 	"	stwcx.	%1, 0, %3\n"
 	"	bne-	1b"
 		: "=&r" (old), "=&r" (tmp), "=m" (*p)

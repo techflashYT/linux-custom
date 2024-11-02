@@ -99,6 +99,7 @@ static __always_inline int __queued_spin_trylock_nosteal(struct qspinlock *lock)
 "1:	lwarx	%0,0,%1,%3	# __queued_spin_trylock_nosteal		\n"
 "	cmpwi	0,%0,0							\n"
 "	bne-	2f							\n"
+	PPCESPRESSO_ERRATA(0,%1)
 "	stwcx.	%2,0,%1							\n"
 "	bne-	1b							\n"
 "\t"	PPC_ACQUIRE_BARRIER "						\n"
@@ -123,6 +124,7 @@ static __always_inline int __queued_spin_trylock_steal(struct qspinlock *lock)
 "	bne-	2f							\n"
 "	and	%1,%0,%4						\n"
 "	or	%1,%1,%3						\n"
+	PPCESPRESSO_ERRATA(0,%2)
 "	stwcx.	%1,0,%2							\n"
 "	bne-	1b							\n"
 "\t"	PPC_ACQUIRE_BARRIER "						\n"

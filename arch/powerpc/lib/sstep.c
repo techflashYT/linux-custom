@@ -3386,9 +3386,15 @@ int emulate_loadstore(struct pt_regs *regs, struct instruction_op *op)
 			__put_user_asmx(op->val, ea, err, "sthcx.", cr);
 			break;
 #endif
-		case 4:
+		case 4: {
+#ifdef CONFIG_ESPRESSO_ERRATA
+			// Terrifying.
+			__cacheop_user_asmx(ea, err, "dcbst");
+#endif
 			__put_user_asmx(op->val, ea, err, "stwcx.", cr);
 			break;
+		}
+
 #ifdef __powerpc64__
 		case 8:
 			__put_user_asmx(op->val, ea, err, "stdcx.", cr);

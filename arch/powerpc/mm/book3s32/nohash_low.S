@@ -7,6 +7,7 @@
 #include <asm/page.h>
 #include <asm/ppc_asm.h>
 #include <asm/asm-offsets.h>
+#include <asm/asm-espresso.h>
 
 /*
  * Flush an entry from the TLB
@@ -26,6 +27,7 @@ _GLOBAL(_tlbie)
 10:	lwarx	r7,0,r9
 	cmpwi	0,r7,0
 	bne-	10b
+	PPCESPRESSO_ERRATA(0,r9)
 	stwcx.	r8,0,r9
 	bne-	10b
 	eieio
@@ -58,6 +60,7 @@ _GLOBAL(_tlbia)
 10:	lwarx	r7,0,r9
 	cmpwi	0,r7,0
 	bne-	10b
+	PPCESPRESSO_ERRATA(0,r9)
 	stwcx.	r8,0,r9
 	bne-	10b
 #endif /* CONFIG_SMP */

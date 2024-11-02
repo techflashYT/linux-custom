@@ -34,6 +34,7 @@
 #include <asm/kup.h>
 #include <asm/bug.h>
 #include <asm/interrupt.h>
+#include <asm/asm-espresso.h>
 
 #include "head_32.h"
 
@@ -262,6 +263,7 @@ interrupt_return:
 	mtspr	SPRN_SRR0,r11
 	mtspr	SPRN_SRR1,r12
 
+	PPCESPRESSO_ERRATA(0,r1)
 BEGIN_FTR_SECTION
 	stwcx.	r0,0,r1		/* to clear the reservation */
 FTR_SECTION_ELSE
@@ -305,6 +307,7 @@ ALT_FTR_SECTION_END_IFCLR(CPU_FTR_STCX_CHECKS_ADDRESS)
 	mtspr	SPRN_SRR0,r11
 	mtspr	SPRN_SRR1,r12
 
+	PPCESPRESSO_ERRATA(0,r1)
 BEGIN_FTR_SECTION
 	stwcx.	r0,0,r1		/* to clear the reservation */
 FTR_SECTION_ELSE
@@ -392,6 +395,7 @@ _ASM_NOKPROBE_SYMBOL(interrupt_return)
 	lwz	r11,_CTR(r1);						\
 	mtspr	SPRN_XER,r10;						\
 	mtctr	r11;							\
+	PPCESPRESSO_ERRATA(0,r1)					\
 	stwcx.	r0,0,r1;		/* to clear the reservation */	\
 	lwz	r11,_LINK(r1);						\
 	mtlr	r11;							\

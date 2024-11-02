@@ -31,6 +31,7 @@
 #include <asm/asm-compat.h>
 #include <asm/feature-fixups.h>
 #include <asm/cpuidle.h>
+#include <asm/asm-espresso.h>
 
 /* Values in HSTATE_NAPPING(r13) */
 #define NAPPING_CEDE	1
@@ -171,6 +172,7 @@ kvmppc_primary_no_guest:
 	addi	r6, r5, VCORE_NAPPING_THREADS
 1:	lwarx	r3, 0, r6
 	or	r3, r3, r0
+	PPCESPRESSO_ERRATA(0,r6)
 	stwcx.	r3, 0, r6
 	bne	1b
 	/* order napping_threads update vs testing entry_exit_map */
@@ -220,6 +222,7 @@ kvm_novcpu_wakeup:
 	addi	r6, r5, VCORE_NAPPING_THREADS
 4:	lwarx	r7, 0, r6
 	andc	r7, r7, r0
+	PPCESPRESSO_ERRATA(0,r6)
 	stwcx.	r7, 0, r6
 	bne	4b
 
@@ -550,6 +553,7 @@ SYM_CODE_START_LOCAL(kvmppc_hv_entry)
 	cmpwi	r3, 0x100		/* any threads starting to exit? */
 	bge	secondary_too_late	/* if so we're too late to the party */
 	or	r3, r3, r7
+	PPCESPRESSO_ERRATA(0,r8)
 	stwcx.	r3, 0, r8
 	bne	21b
 
@@ -2082,6 +2086,7 @@ _GLOBAL(kvmppc_h_cede)		/* r3 = vcpu pointer, r11 = msr, r13 = paca */
 	or	r4,r4,r0
 	cmpw	r4,r8
 	beq	kvm_cede_exit
+	PPCESPRESSO_ERRATA(0,r6)
 	stwcx.	r4,0,r6
 	bne	31b
 	/* order napping_threads update vs testing entry_exit_map */
@@ -2294,6 +2299,7 @@ END_FTR_SECTION_IFCLR(CPU_FTR_TM)
 	addi	r6,r5,VCORE_NAPPING_THREADS
 32:	lwarx	r7,0,r6
 	andc	r7,r7,r0
+	PPCESPRESSO_ERRATA(0,r6)
 	stwcx.	r7,0,r6
 	bne	32b
 	li	r0,0

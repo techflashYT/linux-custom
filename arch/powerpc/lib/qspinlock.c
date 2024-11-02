@@ -10,6 +10,7 @@
 #include <asm/qspinlock.h>
 #include <asm/paravirt.h>
 #include <trace/events/lock.h>
+#include <asm/asm-espresso.h>
 
 #define MAX_NODES	4
 
@@ -138,7 +139,8 @@ static __always_inline u32 trylock_clean_tail(struct qspinlock *lock, u32 tail)
 "	bne	2f							\n"
 	/* If the lock tail matched, then clear it, otherwise leave it. */
 "	andc	%1,%1,%6						\n"
-"2:	stwcx.	%1,0,%2							\n"
+"2:"	PPCESPRESSO_ERRATA(0,%2)
+"	stwcx.	%1,0,%2							\n"
 "	bne-	1b							\n"
 "\t"	PPC_ACQUIRE_BARRIER "						\n"
 "3:									\n"
@@ -170,6 +172,7 @@ static __always_inline u32 publish_tail_cpu(struct qspinlock *lock, u32 tail)
 "1:	lwarx	%0,0,%2		# publish_tail_cpu			\n"
 "	andc	%1,%0,%4						\n"
 "	or	%1,%1,%3						\n"
+	PPCESPRESSO_ERRATA(0,%2)
 "	stwcx.	%1,0,%2							\n"
 "	bne-	1b							\n"
 	: "=&r" (prev), "=&r"(tmp)
@@ -186,6 +189,7 @@ static __always_inline u32 set_mustq(struct qspinlock *lock)
 	asm volatile(
 "1:	lwarx	%0,0,%1		# set_mustq				\n"
 "	or	%0,%0,%2						\n"
+	PPCESPRESSO_ERRATA(0,%1)
 "	stwcx.	%0,0,%1							\n"
 "	bne-	1b							\n"
 	: "=&r" (prev)
@@ -202,6 +206,7 @@ static __always_inline u32 clear_mustq(struct qspinlock *lock)
 	asm volatile(
 "1:	lwarx	%0,0,%1		# clear_mustq				\n"
 "	andc	%0,%0,%2						\n"
+	PPCESPRESSO_ERRATA(0,%1)
 "	stwcx.	%0,0,%1							\n"
 "	bne-	1b							\n"
 	: "=&r" (prev)
@@ -223,6 +228,7 @@ static __always_inline bool try_set_sleepy(struct qspinlock *lock, u32 old)
 "1:	lwarx	%0,0,%1		# try_set_sleepy			\n"
 "	cmpw	0,%0,%2							\n"
 "	bne-	2f							\n"
+	PPCESPRESSO_ERRATA(0,%1)
 "	stwcx.	%3,0,%1							\n"
 "	bne-	1b							\n"
 "2:									\n"

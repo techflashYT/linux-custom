@@ -12,6 +12,7 @@
 #include <asm/barrier.h>
 #include <asm/asm-const.h>
 #include <asm/asm-compat.h>
+#include <asm/asm-espresso.h>
 
 /*
  * Since *_return_relaxed and {cmp}xchg_relaxed are implemented with
@@ -54,6 +55,7 @@ static __inline__ void arch_atomic_##op(int a, atomic_t *v)		\
 	__asm__ __volatile__(						\
 "1:	lwarx	%0,0,%3		# atomic_" #op "\n"			\
 	#asm_op "%I2" suffix " %0,%0,%2\n"				\
+	PPCESPRESSO_ERRATA(0,%3)					\
 "	stwcx.	%0,0,%3 \n"						\
 "	bne-	1b\n"							\
 	: "=&r" (t), "+m" (v->counter)					\
@@ -69,6 +71,7 @@ static inline int arch_atomic_##op##_return_relaxed(int a, atomic_t *v)	\
 	__asm__ __volatile__(						\
 "1:	lwarx	%0,0,%3		# atomic_" #op "_return_relaxed\n"	\
 	#asm_op "%I2" suffix " %0,%0,%2\n"				\
+	PPCESPRESSO_ERRATA(0,%3)					\
 "	stwcx.	%0,0,%3\n"						\
 "	bne-	1b\n"							\
 	: "=&r" (t), "+m" (v->counter)					\
@@ -86,6 +89,7 @@ static inline int arch_atomic_fetch_##op##_relaxed(int a, atomic_t *v)	\
 	__asm__ __volatile__(						\
 "1:	lwarx	%0,0,%4		# atomic_fetch_" #op "_relaxed\n"	\
 	#asm_op "%I3" suffix " %1,%0,%3\n"				\
+	PPCESPRESSO_ERRATA(0,%4)					\
 "	stwcx.	%1,0,%4\n"						\
 "	bne-	1b\n"							\
 	: "=&r" (res), "=&r" (t), "+m" (v->counter)			\
@@ -146,6 +150,7 @@ static __inline__ int arch_atomic_fetch_add_unless(atomic_t *v, int a, int u)
 	cmpw	0,%0,%3 \n\
 	beq	2f \n\
 	add%I2c	%0,%0,%2 \n"
+	PPCESPRESSO_ERRATA(0,%1)
 "	stwcx.	%0,0,%1 \n\
 	bne-	1b \n"
 	PPC_ATOMIC_EXIT_BARRIER
@@ -174,6 +179,7 @@ static __inline__ int arch_atomic_dec_if_positive(atomic_t *v)
 	cmpwi	%0,1\n\
 	addi	%0,%0,-1\n\
 	blt-	2f\n"
+	PPCESPRESSO_ERRATA(0,%1)
 "	stwcx.	%0,0,%1\n\
 	bne-	1b"
 	PPC_ATOMIC_EXIT_BARRIER

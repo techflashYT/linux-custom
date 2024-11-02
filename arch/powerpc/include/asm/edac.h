@@ -10,6 +10,8 @@
  */
 #ifndef ASM_EDAC_H
 #define ASM_EDAC_H
+#include <asm/asm-espresso.h>
+
 /*
  * ECC atomic, DMA, SMP and interrupt safe scrub function.
  * Implements the per arch edac_atomic_scrub() that EDAC use for software
@@ -27,8 +29,9 @@ static __inline__ void edac_atomic_scrub(void *va, u32 size)
 		 * so we are interrupt, DMA and SMP safe.
 		 */
 		__asm__ __volatile__ ("\n\
-				1:	lwarx	%0,0,%1\n\
-					stwcx.	%0,0,%1\n\
+				1:	lwarx	%0,0,%1\n\"
+					PPCESPRESSO_ERRATA(0,%1)
+				"	stwcx.	%0,0,%1\n\
 					bne-	1b\n\
 					isync"
 					: "=&r"(temp)

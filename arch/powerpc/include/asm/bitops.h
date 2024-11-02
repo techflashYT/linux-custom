@@ -41,6 +41,7 @@
 #include <linux/compiler.h>
 #include <asm/asm-compat.h>
 #include <asm/synch.h>
+#include <asm/asm-espresso.h>
 
 /* PPC bit number conversion */
 #define PPC_BITLSHIFT(be)	(BITS_PER_LONG - 1 - (be))
@@ -72,6 +73,7 @@ static inline void fn(unsigned long mask,	\
 	prefix					\
 "1:"	PPC_LLARX "%0,0,%3,0\n"			\
 	#op "%I2 %0,%0,%2\n"			\
+	PPCESPRESSO_ERRATA(0,%3)		\
 	PPC_STLCX "%0,0,%3\n"			\
 	"bne- 1b\n"				\
 	: "=&r" (old), "+m" (*p)		\
@@ -105,6 +107,7 @@ static inline void fn(unsigned long mask, volatile unsigned long *_p)	\
 			prefix						\
 		"1:"	"lwarx	%0,0,%3\n"				\
 			"rlwinm	%0,%0,0,%2\n"				\
+			PPCESPRESSO_ERRATA(0,%3)			\
 			"stwcx.	%0,0,%3\n"				\
 			"bne- 1b\n"					\
 			: "=&r" (old), "+m" (*p)			\
@@ -115,6 +118,7 @@ static inline void fn(unsigned long mask, volatile unsigned long *_p)	\
 			prefix						\
 		"1:"	PPC_LLARX "%0,0,%3,0\n"				\
 			"andc %0,%0,%2\n"				\
+			PPCESPRESSO_ERRATA(0,%3)			\
 			PPC_STLCX "%0,0,%3\n"				\
 			"bne- 1b\n"					\
 			: "=&r" (old), "+m" (*p)			\
@@ -159,6 +163,7 @@ static inline unsigned long fn(			\
 	prefix						\
 "1:"	PPC_LLARX "%0,0,%3,%4\n"			\
 	#op "%I2 %1,%0,%2\n"				\
+	PPCESPRESSO_ERRATA(0,%3)			\
 	PPC_STLCX "%1,0,%3\n"				\
 	"bne- 1b\n"					\
 	postfix						\
@@ -186,6 +191,7 @@ static inline unsigned long test_and_clear_bits(unsigned long mask, volatile uns
 			PPC_ATOMIC_ENTRY_BARRIER
 		"1:"	"lwarx %0,0,%3\n"
 			"rlwinm	%1,%0,0,%2\n"
+			PPCESPRESSO_ERRATA(0,%3)
 			"stwcx. %1,0,%3\n"
 			"bne- 1b\n"
 			PPC_ATOMIC_EXIT_BARRIER
@@ -197,6 +203,7 @@ static inline unsigned long test_and_clear_bits(unsigned long mask, volatile uns
 			PPC_ATOMIC_ENTRY_BARRIER
 		"1:"	PPC_LLARX "%0,0,%3,0\n"
 			"andc	%1,%0,%2\n"
+			PPCESPRESSO_ERRATA(0,%3)
 			PPC_STLCX "%1,0,%3\n"
 			"bne- 1b\n"
 			PPC_ATOMIC_EXIT_BARRIER

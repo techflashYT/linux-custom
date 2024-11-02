@@ -25,6 +25,7 @@
 #include <asm/asm-offsets.h>
 #include <asm/feature-fixups.h>
 #include <asm/code-patching-asm.h>
+#include <asm/asm-espresso.h>
 
 #ifdef CONFIG_PTE_64BIT
 #define PTE_T_SIZE		8
@@ -60,6 +61,7 @@ _GLOBAL(hash_page)
 10:	lwarx	r6,0,r8
 	cmpwi	0,r6,0
 	bne-	11b
+	PPCESPRESSO_ERRATA(0,r8)
 	stwcx.	r0,0,r8
 	bne-	10b
 	isync
@@ -143,6 +145,7 @@ _GLOBAL(hash_page)
 	lwz	r10,-PTE_FLAGS_OFFSET(r8)
 #endif /* CONFIG_SMP */
 #endif /* CONFIG_PTE_64BIT */
+	PPCESPRESSO_ERRATA(0,r8)
 	stwcx.	r5,0,r8			/* attempt to update PTE */
 	bne-	.Lretry			/* retry if someone got there first */
 
@@ -206,6 +209,7 @@ _GLOBAL(add_hash_page)
 10:	lwarx	r0,0,r6			/* take the mmu_hash_lock */
 	cmpwi	0,r0,0
 	bne-	11f
+	PPCESPRESSO_ERRATA(0,r6)
 	stwcx.	r8,0,r6
 	beq+	12f
 11:	lwz	r0,0(r6)
@@ -240,6 +244,7 @@ _GLOBAL(add_hash_page)
 #endif /* CONFIG_SMP */
 #endif /* CONFIG_PTE_64BIT */
 	ori	r5,r6,_PAGE_HASHPTE
+	PPCESPRESSO_ERRATA(0,r8)
 	stwcx.	r5,0,r8
 	bne-	1b
 
@@ -522,6 +527,7 @@ _GLOBAL(flush_hash_pages)
 10:	lwarx	r0,0,r9
 	cmpwi	0,r0,0
 	bne-	11f
+	PPCESPRESSO_ERRATA(0,r9)
 	stwcx.	r8,0,r9
 	beq+	12f
 11:	lwz	r0,0(r9)
@@ -540,6 +546,7 @@ _GLOBAL(flush_hash_pages)
 	andi.	r0,r8,_PAGE_HASHPTE
 	beq	8f			/* done if HASHPTE is already clear */
 	rlwinm	r8,r8,0,31,29		/* clear HASHPTE bit */
+	PPCESPRESSO_ERRATA(0,r5)
 	stwcx.	r8,0,r5			/* update the pte */
 	bne-	33b
 

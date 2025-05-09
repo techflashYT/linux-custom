@@ -613,6 +613,7 @@
 #endif
 #define SPRN_HID2_750FX	0x3F8		/* IBM 750FX HID2 Register */
 #define SPRN_HID2_GEKKO	0x398		/* Gekko HID2 Register */
+#define HID2_PSE	(1<<29)		/* Gekko HID2 paired single enable. */
 #define SPRN_HID2_G2_LE	0x3F3		/* G2_LE HID2 Register */
 #define  HID2_G2_LE_HBE	(1<<18)		/* High BAT Enable (G2_LE) */
 #define SPRN_IABR	0x3F2	/* Instruction Address Breakpoint Register */

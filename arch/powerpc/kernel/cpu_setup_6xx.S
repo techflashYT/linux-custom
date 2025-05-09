@@ -278,10 +278,39 @@ SYM_FUNC_START_LOCAL(setup_espresso)
 	isync
 
 espresso_not_core_0:
+	li r8, 0
+	mtspr SPRN_HID2_GEKKO, r8
+	sync
+	isync
 
-	lis r8, 0xb3b0 // 64B fetch, depth 4, SBE, ST0, LPE, L2MUM, L2CFI
+	lis r8, 0xb3b8 // 64B fetch, depth 4, SBE, ST0, LPE, L2MUM, L2CFI, PS1_CTL & PS2_CTL
 	mtspr SPRN_HID4_GEKKO, r8
 	sync
+
+#ifndef CONFIG_PPC_PEDANTIC_PSE
+	lis r8, 0x2000
+	mtspr SPRN_HID2_GEKKO, r8
+	sync
+	isync
+#endif
+
+	li r8, 0
+
+	// Initialize GQRs
+	mtspr 912, r8
+	mtspr 913, r8
+	mtspr 914, r8
+	mtspr 915, r8
+	mtspr 916, r8
+	mtspr 917, r8
+	mtspr 918, r8
+	mtspr 919, r8
+
+#ifdef CONFIG_PPC_PEDANTIC_PSE
+	mtspr SPRN_HID2_GEKKO, r8
+	sync
+	isync
+#endif
 
 	// This value is borrowed from Cafe OS via https://fail0verflow.com/blog/2013/espresso/
 	// except for bit 0x08000000, which makes MMU init crash

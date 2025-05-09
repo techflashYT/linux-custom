@@ -1732,7 +1732,8 @@ static void do_program_check(struct pt_regs *regs)
 	if (cpu_has_feature(CPU_FTR_PAIRED_SINGLE) && (reason & REASON_ILLEGAL)) {
 		if (!check_paired_single(regs)) {
 			mtspr(SPRN_HID2_GEKKO, mfspr(SPRN_HID2_GEKKO) | HID2_PSE);
-			load_gqrs(current);
+			if (regs->msr & MSR_FP)
+				load_gqrs(current);
 			/* Invalidate instruction cache as per documentation. */
 			mtspr(SPRN_HID0, mfspr(SPRN_HID0) | HID0_ICFI);
 			isync();

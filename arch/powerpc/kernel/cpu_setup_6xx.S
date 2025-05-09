@@ -306,12 +306,6 @@ espresso_not_core_0:
 	mtspr 918, r8
 	mtspr 919, r8
 
-#ifdef CONFIG_PPC_PEDANTIC_PSE
-	mtspr SPRN_HID2_GEKKO, r8
-	sync
-	isync
-#endif
-
 	// This value is borrowed from Cafe OS via https://fail0verflow.com/blog/2013/espresso/
 	// except for bit 0x08000000, which makes MMU init crash
 	mfspr r8, SPRN_HID5_ESPRESSO

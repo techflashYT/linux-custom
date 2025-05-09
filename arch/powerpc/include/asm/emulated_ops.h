@@ -33,6 +33,10 @@ extern struct ppc_emulated {
 	struct ppc_emulated_entry string;
 	struct ppc_emulated_entry sync;
 	struct ppc_emulated_entry unaligned;
+#ifdef CONFIG_PPC_BOOK3S_750CL
+	struct ppc_emulated_entry mfgqr;
+	struct ppc_emulated_entry mtgqr;
+#endif
 #ifdef CONFIG_MATH_EMULATION
 	struct ppc_emulated_entry math;
 #endif

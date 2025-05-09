@@ -1411,7 +1411,7 @@ static int emulate_instruction(struct pt_regs *regs)
 
 #ifdef CONFIG_PPC_BOOK3S_750CL
 	if (cpu_has_feature(CPU_FTR_PAIRED_SINGLE)) {
-		/* Emulate mfgpr rD, n */
+		/* Emulate mfgqr rD, n */
 		if ((instword & PPC_INST_MFSPR_GQR_MASK) == PPC_INST_MFSPR_GQR) {
 			PPC_WARN_EMULATED(mfgqr, regs);
 			rd = (instword >> 21) & 0x1f;
@@ -1458,7 +1458,7 @@ static int emulate_instruction(struct pt_regs *regs)
 			return 0;
 		}
 
-		/* Emulate mtgpr n, rS */
+		/* Emulate mtgqr n, rS */
 		if ((instword & PPC_INST_MTSPR_GQR_MASK) == PPC_INST_MTSPR_GQR) {
 			PPC_WARN_EMULATED(mtgqr, regs);
 			rd = (instword >> 21) & 0x1f;

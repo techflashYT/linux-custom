@@ -132,16 +132,10 @@ END_FTR_SECTION_IFSET(CPU_FTR_VSX)
 	REST_32FPVSRS(0, R4, R10)
 	/* restore registers and return */
 	/* we haven't used ctr or xer or lr */
-	/* TODO: make these sections dependent on if paired singles are enabled. */
-#ifdef CONFIG_PPC_BOOK3S_750CL
+#if defined(CONFIG_PPC_BOOK3S_750CL) && !defined(CONFIG_PPC_PEDANTIC_PSE)
 BEGIN_FTR_SECTION
 	blr
 END_FTR_SECTION_IFCLR(CPU_FTR_PAIRED_SINGLE)
-#ifdef CONFIG_PPC_PEDANTIC_PSE
-	mfspr r4, SPRN_HID2_GEKKO
-	andis. r4, r4, HID2_PSE@h
-	beqlr
-#endif
 	addi r10,r5,THREAD_GQRSTATE
 	REST_8GQRS(0, r4, r10)
 #endif

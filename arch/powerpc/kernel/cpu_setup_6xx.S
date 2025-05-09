@@ -290,8 +290,26 @@ espresso_not_core_0:
 	ori r8, r8, 0xC000
 	mtspr SPRN_HID5_ESPRESSO, r8
 	sync
-
 	isync
+
+	// Save r5 and LR
+	mr r14, r5
+	mflr r15
+
+	// Disable and re-enable L2 cache
+	li	r3, 0
+	bl	_set_L2CR
+
+	lis	r3, 0x8020
+	// On core 1, the cache is bigger!
+	cmpwi	0, r24, 1
+	bne	1f
+	oris	r3, r3, 0x2000
+	// Enable the cache and finish
+1:	bl _set_L2CR
+
+	mr r5, r14
+	mtlr r15
 	blr
 SYM_FUNC_END(setup_espresso)
 

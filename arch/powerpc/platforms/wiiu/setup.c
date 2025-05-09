@@ -7,6 +7,9 @@
 #define DRV_MODULE_NAME "wiiu"
 #define pr_fmt(fmt) DRV_MODULE_NAME ": " fmt
 
+#include <linux/atomic.h>
+#include <linux/init.h>
+#include <linux/string.h>
 #include <linux/kernel.h>
 #include <linux/of.h>
 #include <linux/of_platform.h>
@@ -16,6 +19,7 @@
 #include <asm/time.h>
 #include <asm/udbg.h>
 #include <asm/interrupt.h>
+#include <asm/cacheflush.h>
 
 #include "espresso-pic.h"
 #include "latte-pic.h"
@@ -23,6 +27,10 @@
 
 #define WIIU_LOADER_CMD_POWEROFF 0xCAFE0001
 #define WIIU_LOADER_CMD_REBOOT   0xCAFE0002
+#define ESPRESSO_IPI_MASK ((1 << 20) | (1 << 19) | (1 << 18))
+
+static atomic_long_t IPIs = {0};
+static bool ipiDebugging = false;
 
 static void __noreturn wiiu_halt(void)
 {
@@ -77,12 +85,11 @@ static void __init wiiu_smp_probe(void)
 static void wiiu_do_exi_bootstub(unsigned long entry)
 {
 	void __iomem *exi_iob;
-	int i;
 
-	exi_iob = ioremap(0x08100100, 16);
+	exi_iob = ioremap(0x08100100, 24);
 	if (!exi_iob)
 	{
-		pr_err("%s: couldn't map EXI!\n", __func__);
+		pr_err("%s: couldn't map secondary boot stub!\n", __func__);
 		return;
 	}
 
@@ -101,9 +108,10 @@ static void wiiu_do_exi_bootstub(unsigned long entry)
 	// rfi
 	iowrite32be(0x4c000064, exi_iob + 4 * 5);
 
-	for (i = 6; i < 0x10; ++i)
-		iowrite32be(0, exi_iob + 4 * i);
-	printk("%s: EXI bootstub setup OK!\n", __func__);
+	clean_dcache_range((unsigned long)exi_iob, ((unsigned long)exi_iob) + 24);
+	iounmap(exi_iob);
+
+	printk("%s: Secondary bootstub setup OK!\n", __func__);
 }
 
 extern void __secondary_start_wiiu(void); // head_book3s_32.S
@@ -132,7 +140,7 @@ static int wiiu_kick_cpu(int nr)
 	if (__secondary_hold_acknowledge == nr)
 		printk("%s: cpu %d ok\n", __func__, nr);
 	else
-		printk("%s: cpu %d gave invalid ack: %08lx\n", __func__, nr, __secondary_hold_acknowledge);
+		printk("%s: cpu %d gave invalid ack: 0x%08lx\n", __func__, nr, __secondary_hold_acknowledge);
 
 	return 0;
 }
@@ -140,12 +148,44 @@ static int wiiu_kick_cpu(int nr)
 static void wiiu_ipi_cpu(int cpu)
 {
 	unsigned long scr, mask = 1 << (20 - cpu);
+	unsigned int thisCPU = smp_processor_id();
 
-	if ((scr = mfspr(SPRN_SCR_ESPRESSO)), scr & mask)
-		printk("%s: cpu %d already had ipi pending? %08lx\n", __func__, cpu, scr);
+	// Don't send an IPI to ourselves.
+	if (unlikely(thisCPU == cpu)) {
+		if (ipiDebugging) {
+			printk("%s: cpu %d attempted to send IPI to itself?!\n", __func__, cpu);
+		}
+	} else {
+		unsigned int attempts = 0;
 
-	while ((scr = mfspr(SPRN_SCR_ESPRESSO)), !(scr & mask))
-		mtspr(SPRN_SCR_ESPRESSO, scr | mask);
+		// Say if an IPI was already pending.
+		if (ipiDebugging) {
+			if ((scr = mfspr(SPRN_SCR_ESPRESSO)), scr & mask) {
+				printk("%s: cpu %u: cpu %d already had ipi pending? SCR: 0x%08lx\n", __func__, thisCPU, cpu, scr);
+			}
+		}
+
+		// Apparently we are "required to include a full barrier
+		// before doing whatever causes the IPI.
+		// Hopefully this counts.
+		smp_mb__before_atomic();
+		atomic_long_or(mask, &IPIs);
+		smp_mb__after_atomic();
+
+		while ((mfspr(SPRN_SCR_ESPRESSO) & ESPRESSO_IPI_MASK) != atomic_long_read(&IPIs) && attempts < 4) {
+			smp_mb__before_atomic();
+			mtspr(SPRN_SCR_ESPRESSO, (mfspr(SPRN_SCR_ESPRESSO) & ~ESPRESSO_IPI_MASK) | atomic_long_read(&IPIs));
+			attempts++;
+		}
+
+		if (ipiDebugging) {
+			if (attempts == 0) {
+				printk("%s: IPI from cpu %u to cpu %d wasn't sent? IPI mask: 0x%08lx\n", __func__, thisCPU, cpu, atomic_long_read(&IPIs));
+			} else if (attempts > 1) {
+				printk("%s: CPU %u attempted to send ipi to cpu %d %u times!\n", __func__, thisCPU, cpu, attempts);
+			}
+		}
+	}
 }
 
 struct smp_ops_t espresso_smp_ops = {
@@ -161,11 +201,17 @@ struct smp_ops_t espresso_smp_ops = {
 DEFINE_INTERRUPT_HANDLER_ASYNC(TAUException)
 {
 	unsigned int cpu = smp_processor_id();
-	unsigned long scr, mask = 1 << (20 - cpu);
+	unsigned long mask = 1 << (20 - cpu);
 
-	// ack the irq
-	while ((scr = mfspr(SPRN_SCR_ESPRESSO)), scr & mask)
-		mtspr(SPRN_SCR_ESPRESSO, scr & ~mask);
+	// Ack the IPI
+	smp_mb__before_atomic();
+	atomic_long_and(~mask, &IPIs);
+	smp_mb__after_atomic();
+
+	while ((mfspr(SPRN_SCR_ESPRESSO) & ESPRESSO_IPI_MASK) != atomic_long_read(&IPIs)) {
+		smp_mb__before_atomic();
+		mtspr(SPRN_SCR_ESPRESSO, (mfspr(SPRN_SCR_ESPRESSO) & ~ESPRESSO_IPI_MASK) | atomic_long_read(&IPIs));
+	}
 
 #ifdef CONFIG_SMP
 	smp_ipi_demux();
@@ -177,6 +223,10 @@ static void __init wiiu_setup_arch(void)
 #ifdef CONFIG_SMP
 	smp_ops = &espresso_smp_ops;
 #endif
+	/* Enable IPI debugging if requested */
+	if (strstr(boot_command_line, "wiiu_ipi_debug")) {
+		ipiDebugging = true;
+	}
 }
 
 define_machine(wiiu) {

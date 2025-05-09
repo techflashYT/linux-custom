@@ -1416,7 +1416,11 @@ static int emulate_instruction(struct pt_regs *regs)
 			rd = (instword >> 21) & 0x1f;
 			u8 gqr = (instword >> 16) & 7;
 			/* If the current thread is using the FPU, read from the true GQRs. */
-			if ((regs->msr & MSR_FP) && (mfspr(SPRN_HID2_GEKKO) & HID2_PSE)) {
+			if ((regs->msr & MSR_FP) 
+			#ifdef CONFIG_PPC_PEDANTIC_PSE 
+			&& (mfspr(SPRN_HID2_GEKKO) & HID2_PSE)
+			#endif
+			) {
 				switch (gqr) {
 					case 0:
 						regs->gpr[rd] = mfspr(912);
@@ -1458,7 +1462,11 @@ static int emulate_instruction(struct pt_regs *regs)
 			rd = (instword >> 21) & 0x1f;
 			u8 gqr = (instword >> 16) & 7;
 			/* If the current thread is using the FPU, write to the true GQRs. */
-			if ((regs->msr & MSR_FP) && (mfspr(SPRN_HID2_GEKKO) & HID2_PSE)) {
+			if ((regs->msr & MSR_FP) 
+			#ifdef CONFIG_PPC_PEDANTIC_PSE 
+			&& (mfspr(SPRN_HID2_GEKKO) & HID2_PSE)
+			#endif
+			) {
 				switch (gqr) {
 					case 0:
 						mtspr(912, regs->gpr[rd]);
@@ -1727,7 +1735,6 @@ static void do_program_check(struct pt_regs *regs)
 			load_gqrs(current);
 			/* Invalidate instruction cache as per documentation. */
 			mtspr(SPRN_HID0, mfspr(SPRN_HID0) | HID0_ICFI);
-			iosync();
 			isync();
 			return;
 		}

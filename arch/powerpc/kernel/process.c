@@ -161,17 +161,15 @@ static void __giveup_fpu(struct task_struct *tsk)
 	regs_set_return_msr(tsk->thread.regs, msr);
 #if defined(CONFIG_PPC_BOOK3S_750CL) && defined(CONFIG_PPC_PEDANTIC_PSE)
 	if (cpu_has_feature(CPU_FTR_PAIRED_SINGLE)) {
+		u32 hid2 = mfspr(SPRN_HID2_GEKKO);
 		/*
 		 * Disable paired singles to avoid problems with
 		 * instructions that change their behavior when
 		 * paired singles are enabled and software which is not
 		 * paired single aware.
 		 */
-		if (mfspr(SPRN_HID2_GEKKO) & HID2_PSE) {
-			mtspr(SPRN_HID2_GEKKO, mfspr(SPRN_HID2_GEKKO) & ~HID2_PSE);
-			iosync();
-			isync();
-		}
+		if (hid2 & HID2_PSE)
+			mtspr(SPRN_HID2_GEKKO, hid2 & ~HID2_PSE);
 	}
 #endif
 }

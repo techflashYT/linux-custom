@@ -1411,8 +1411,9 @@ static int emulate_instruction(struct pt_regs *regs)
 
 #ifdef CONFIG_PPC_BOOK3S_750CL
 	if (cpu_has_feature(CPU_FTR_PAIRED_SINGLE)) {
-		/* Emulate mfspr rD, GQRn */
+		/* Emulate mfgpr rD, n */
 		if ((instword & PPC_INST_MFSPR_GQR_MASK) == PPC_INST_MFSPR_GQR) {
+			PPC_WARN_EMULATED(mfgqr, regs);
 			rd = (instword >> 21) & 0x1f;
 			u8 gqr = (instword >> 16) & 7;
 			/* If the current thread is using the FPU, read from the true GQRs. */
@@ -1457,8 +1458,9 @@ static int emulate_instruction(struct pt_regs *regs)
 			return 0;
 		}
 
-		/* Emulate mtspr GQRn, rS */
+		/* Emulate mtgpr n, rS */
 		if ((instword & PPC_INST_MTSPR_GQR_MASK) == PPC_INST_MTSPR_GQR) {
+			PPC_WARN_EMULATED(mtgqr, regs);
 			rd = (instword >> 21) & 0x1f;
 			u8 gqr = (instword >> 16) & 7;
 			/* If the current thread is using the FPU, write to the true GQRs. */

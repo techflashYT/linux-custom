@@ -249,6 +249,7 @@ SYM_FUNC_END(setup_750fx)
  * Source: https://github.com/Wii-Linux/wii-linux-ngx/blob/wii-v4.19/arch/powerpc/kernel/cpu_setup_6xx.S#L199
  */
 SYM_FUNC_START_LOCAL(setup_750cl_paired_singles)
+#ifdef CONFIG_PPC_BOOK3S_750CL
 /* Make sure we only run on CPUs with paired single support. */
 BEGIN_FTR_SECTION
 	blr
@@ -256,15 +257,12 @@ END_FTR_SECTION_IFCLR(CPU_FTR_PAIRED_SINGLE)
 	mfspr r8, SPRN_HID4_GEKKO
 	oris r8, r8, 0x108 // PS1_CTL & PS2_CTL
 	mtspr SPRN_HID4_GEKKO, r8
-	sync
 
 #ifndef CONFIG_PPC_PEDANTIC_PSE
 	mfspr r8, SPRN_HID2_GEKKO
 	oris r8, r8, (HID2_PSE | HID2_LSQE)@h
 	mtspr SPRN_HID2_GEKKO, r8
-	isync
 #endif
-
 	li r8, 0
 
 	// Initialize GQRs
@@ -276,6 +274,7 @@ END_FTR_SECTION_IFCLR(CPU_FTR_PAIRED_SINGLE)
 	mtspr 917, r8
 	mtspr 918, r8
 	mtspr 919, r8
+#endif
 
 	blr
 SYM_FUNC_END(setup_750cl_paired_singles)

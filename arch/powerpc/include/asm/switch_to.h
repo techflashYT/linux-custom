@@ -41,7 +41,9 @@ extern void enable_kernel_fp(void);
 extern void flush_fp_to_thread(struct task_struct *);
 extern void giveup_fpu(struct task_struct *);
 extern void save_fpu(struct task_struct *);
+#if defined(CONFIG_PPC_BOOK3S_750CL) && defined(CONFIG_PPC_PEDANTIC_PSE)
 extern void load_gqrs(struct task_struct *);
+#endif
 static inline void disable_kernel_fp(void)
 {
 	msr_check_and_clear(MSR_FP);

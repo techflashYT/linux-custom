@@ -1743,7 +1743,6 @@ static void do_program_check(struct pt_regs *regs)
 			load_gqrs(current);
 			/* Invalidate instruction cache as per documentation. */
 			mtspr(SPRN_HID0, mfspr(SPRN_HID0) | HID0_ICFI);
-			isync();
 			return;
 		}
 	}

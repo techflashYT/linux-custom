@@ -795,7 +795,7 @@ _GLOBAL(copy_and_flush)
 __secondary_start_wiiu:
 	mfspr	r3, SPRN_HID5_ESPRESSO
 	/* Enable HID5 and PIR */
-	oris	r3, r3, 0xC000
+	oris	r3, r3, 0xc000
 	mtspr	SPRN_HID5_ESPRESSO, r3
 	isync
 

@@ -16,6 +16,7 @@
 #include <linux/console.h>
 #include <linux/kexec.h>
 #include <linux/of.h>
+#include <linux/seq_file.h>
 
 #include <asm/mmu.h>
 #include <asm/pci-bridge.h>

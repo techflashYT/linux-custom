@@ -244,7 +244,7 @@ static unsigned int iic_get_irq(void)
 		return NO_IRQ;
 	}
 
-	return irq_linear_revmap(host, index);
+	return irq_find_mapping(host, index);
 }
 
 static int xenon_irq_host_map(struct irq_domain *h, unsigned int virq,
@@ -290,7 +290,7 @@ void __init xenon_iic_init_IRQ(void)
 		host = irq_domain_add_linear(NULL, XENON_NR_IRQS, &xenon_irq_host_ops, NULL);
 		host->host_data = of_node_get(dn);
 		BUG_ON(host == NULL);
-		irq_set_default_host(host);
+		irq_set_default_domain(host);
 	}
 
 	ppc_md.get_irq = iic_get_irq;

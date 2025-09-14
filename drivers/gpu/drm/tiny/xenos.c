@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: GPL-2.0 */
 
+#include <linux/aperture.h>
 #include <linux/iosys-map.h>
 #include <linux/module.h>
 #include <linux/pci.h>
@@ -7,7 +8,6 @@
 #include <video/cirrus.h>
 #include <video/vga.h>
 
-#include <drm/drm_aperture.h>
 #include <drm/drm_atomic.h>
 #include <drm/drm_atomic_helper.h>
 #include <drm/drm_atomic_state_helper.h>
@@ -15,6 +15,7 @@
 #include <drm/drm_damage_helper.h>
 #include <drm/drm_drv.h>
 #include <drm/drm_edid.h>
+#include <drm/drm_fbdev_shmem.h>
 #include <drm/drm_fbdev_ttm.h>
 #include <drm/drm_file.h>
 #include <drm/drm_format_helper.h>
@@ -30,10 +31,10 @@
 #include <drm/drm_module.h>
 #include <drm/drm_probe_helper.h>
 #include <drm/drm_simple_kms_helper.h>
+#include <drm/clients/drm_client_setup.h>
 
 #define DRIVER_NAME "xenos"
 #define DRIVER_DESC "DRM framebuffer driver for Xbox 360's Xenos"
-#define DRIVER_DATE "20240519"
 #define DRIVER_MAJOR 1
 #define DRIVER_MINOR 0
 
@@ -271,12 +272,12 @@ static const struct drm_driver xenos_driver = {
 
 	.name = DRIVER_NAME,
 	.desc = DRIVER_DESC,
-	.date = DRIVER_DATE,
 	.major = DRIVER_MAJOR,
 	.minor = DRIVER_MINOR,
 
 	.fops = &xenos_fops,
 	DRM_GEM_SHMEM_DRIVER_OPS,
+	DRM_FBDEV_SHMEM_DRIVER_OPS,
 };
 
 static int xenos_pci_probe(struct pci_dev *pdev,
@@ -286,8 +287,8 @@ static int xenos_pci_probe(struct pci_dev *pdev,
 	struct xenos_device *xenos;
 	int ret;
 
-	ret = drm_aperture_remove_conflicting_pci_framebuffers(pdev,
-							       &xenos_driver);
+	ret = aperture_remove_conflicting_pci_devices(pdev,
+						       xenos_driver.name);
 	if (ret)
 		return ret;
 
@@ -321,7 +322,7 @@ static int xenos_pci_probe(struct pci_dev *pdev,
 	if (ret)
 		return ret;
 
-	drm_fbdev_ttm_setup(dev, 32);
+	drm_client_setup(dev, NULL);
 	return 0;
 }
 

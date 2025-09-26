@@ -64,8 +64,8 @@ static void _xenon_smc_send(void *msg)
 {
 	unsigned long flags;
 
-	print_hex_dump(KERN_DEBUG, "_xenon_smc_send: ",
-		DUMP_PREFIX_NONE, 16, 2, msg, 16, 0);
+	// print_hex_dump(KERN_DEBUG, "_xenon_smc_send: ",
+	// 	DUMP_PREFIX_NONE, 16, 2, msg, 16, 0);
 
 	spin_lock_irqsave(&smc.fifo_lock, flags);
 	while (!(readl(smc.base + 0x84) & 4))
@@ -141,8 +141,8 @@ static void _xenon_smc_cache(unsigned char *msg) {
 	else
 		printk("unknown smc reply %02x", msg[0]);
 
-	print_hex_dump(KERN_DEBUG, "_xenon_smc_cache: ",
-		DUMP_PREFIX_NONE, 16, 2, msg, 16, 0);
+	//print_hex_dump(KERN_DEBUG, "_xenon_smc_cache: ",
+	//	DUMP_PREFIX_NONE, 16, 2, msg, 16, 0);
 	smc.cmd = msg[0];
 }
 
@@ -228,8 +228,8 @@ static irqreturn_t xenon_smc_irq(int irq, void *dev_id)
 
 	unsigned int irqs = readl(smc.base + 0x50);
 
-	printk(KERN_DEBUG "xenon_smc_irq() = %08x,%08x\n",
-		irqs, readl(smc.base + 0x94));
+	// printk(KERN_DEBUG "xenon_smc_irq() = %08x,%08x\n",
+	// 	irqs, readl(smc.base + 0x94));
 
 	if (irqs & 0x10000000) {
 		if (_xenon_smc_reply(msg)) {

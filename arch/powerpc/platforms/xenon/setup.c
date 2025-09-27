@@ -68,7 +68,6 @@ static void __init xenon_setup_arch(void)
 	if (ROOT_DEV == 0)
 		ROOT_DEV = MKDEV(SCSI_DISK0_MAJOR, 1); // No mention of it being removed in root_dev.h? Why??
 
-	xenon_pci_init();
 #ifdef CONFIG_DUMMY_CONSOLE
 	conswitchp = &dummy_con;
 #endif
@@ -157,6 +156,7 @@ define_machine(xenon) {
 	.name			= "Xenon",
 	.probe			= xenon_probe,
 	.setup_arch		= xenon_setup_arch,
+	.discover_phbs		= xenon_pci_init,
 	.show_cpuinfo	= xenon_show_cpuinfo,
 	.calibrate_decr	= generic_calibrate_decr,
 	.init_IRQ       = xenon_init_irq,

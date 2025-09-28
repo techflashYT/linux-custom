@@ -2,6 +2,7 @@ config PPC_XENON
 	bool "Xenon"
 	depends on PPC64
 	select HAVE_PCI
+	select PPC_HASH_MMU_NATIVE
 	default y
 	help
 	  This option enables support for the Xbox 360 game console

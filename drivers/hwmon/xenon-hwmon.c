@@ -13,6 +13,8 @@
 #include <linux/hwmon.h>
 #include <linux/hwmon-sysfs.h>
 
+#include <xenon/smc-core.h>
+
 #define DRV_NAME	"xenon-hwmon"
 #define DRV_VERSION	"0.2"
 
@@ -32,8 +34,6 @@ static const char *temp_labels[4] = {
 	"Motherboard"
 };
 
-int xenon_smc_message_wait(void *msg);
-
 static unsigned long xenon_get_temp(unsigned nr)
 {
 	unsigned char msg[16] = { 0x07 };
@@ -48,8 +48,6 @@ static unsigned long xenon_get_temp(unsigned nr)
 
 	return temp[nr & 3];
 }
-
-void xenon_smc_message(void *msg);
 
 static int xenon_set_cpu_fan_speed(unsigned val)
 {

@@ -24,11 +24,11 @@
 #include <linux/fs.h>
 #include <linux/uaccess.h>
 
+#include <xenon/smc-core.h>
+
 #define DRV_NAME	"xenon_ana"
 #define DRV_VERSION	"0.2"
 
-
-int xenon_smc_message_wait(void *msg);
 
 static uint32_t ana_read_reg(uint8_t addr)
 {

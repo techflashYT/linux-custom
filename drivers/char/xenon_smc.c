@@ -24,6 +24,8 @@
 #include <linux/fs.h>
 #include <linux/uaccess.h>
 
+#include <xenon/smc-core.h>
+
 #define DRV_NAME	"xenon_smc"
 #define DRV_VERSION	"0.2"
 
@@ -43,8 +45,6 @@ static ssize_t smc_read(struct file *file, char __user *buf,
 
 	return 16;
 }
-
-int xenon_smc_message_wait(void *msg);
 
 static ssize_t smc_write(struct file *file, const char __user *buf,
 	size_t count, loff_t *ppos)

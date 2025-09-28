@@ -22,6 +22,7 @@
 #include <linux/platform_device.h>
 #include <linux/rtc.h>
 
+#include <xenon/smc-core.h>
 
 #define DRV_NAME	"rtc-xenon"
 #define DRV_VERSION	"0.1"
@@ -29,8 +30,6 @@
 	/* for whatever reason, 15.Nov.2001 00:00 GMT */
 #define	RTC_BASE	1005782400UL
 
-
-int xenon_smc_message_wait(void *msg);
 
 static unsigned long xenon_get_rtc(void)
 {
@@ -42,8 +41,6 @@ static unsigned long xenon_get_rtc(void)
 		(msg[4] << 24) | ((unsigned long)msg[5] << 32);
 	return RTC_BASE + msec/1000;
 }
-
-void xenon_smc_message(void *msg);
 
 static int xenon_set_rtc(unsigned long secs)
 {

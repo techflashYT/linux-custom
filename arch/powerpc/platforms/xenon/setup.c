@@ -15,6 +15,8 @@
 #include <linux/of.h>
 #include <linux/seq_file.h>
 
+#include <xenon/smc-core.h>
+
 #include <asm/mmu.h>
 #include <asm/pci-bridge.h>
 #include <asm/ppc-pci.h>
@@ -67,9 +69,6 @@ static void __init xenon_setup_arch(void)
 #endif
 }
 
-int xenon_smc_message(void *msg);
-void xenon_smc_restart(void);
-
 static void xenon_panic(char *str)
 {
 	// show a red ring
@@ -97,8 +96,6 @@ static void __noreturn xenon_restart(char *cmd)
 	while (1);
 }
 
-void xenon_smc_power_off(void);
-
 static void xenon_power_off(void)
 {
 	printk("   System power off ... \n");
@@ -109,8 +106,6 @@ static void xenon_power_off(void)
 	local_irq_disable();
 	while (1);
 }
-
-void xenon_smc_halt(void);
 
 static void __noreturn xenon_halt(void)
 {

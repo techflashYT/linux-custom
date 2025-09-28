@@ -12,6 +12,8 @@
 #include <linux/interrupt.h>
 #include <linux/mutex.h>
 
+#include <xenon/smc-core.h>
+
 #define DRV_NAME	"xenon_smc_core"
 #define DRV_VERSION	"0.1"
 

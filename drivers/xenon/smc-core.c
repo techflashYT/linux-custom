@@ -49,6 +49,9 @@ static unsigned char smc_reply[][16] = {
 	{ 0x83 },	/* smc event */
 };
 
+int xenon_smc_ready(void) {
+	return smc.base != NULL;
+}
 
 static void _xenon_smc_send(void *msg)
 {

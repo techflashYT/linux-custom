@@ -88,6 +88,10 @@ static int xenon_led_probe(struct platform_device *pdev)
 	int ret, i;
 	char *color;
 
+	/* we really need the SMC to be ready */
+	if (!xenon_smc_ready())
+		return -EPROBE_DEFER;
+
 	for (i = 0; i < 8; i++) {
 		if (i < 4)
 			color = "red";
@@ -163,3 +167,4 @@ module_exit(xenon_led_exit);
 MODULE_LICENSE("GPL");
 MODULE_DESCRIPTION("Ring of Light LED support for the Xenon Game Console");
 MODULE_AUTHOR("Techflash <officialTechflashYT@gmail.com>");
+MODULE_SOFTDEP("pre: xenon_smc_core");

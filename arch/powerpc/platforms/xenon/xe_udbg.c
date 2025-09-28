@@ -1,9 +1,8 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  * xe_udbg.c: Early debug console via framebuffer
  *
  * Copyright 2017 Justin Moore
- *
- * Licensed under the GPL v2.
  */
 
 #include <linux/bug.h>
@@ -17,6 +16,8 @@
 #include <asm/page.h>
 #include <asm/prom.h>
 #include <asm/udbg.h>
+
+#include "udbg.h"
 
 // ========================================================================
 // ========================================================================
@@ -144,8 +145,9 @@ void __init udbg_init_xenon_virtual(void) {
     udbg_putc = console_putch;
   }
 }
-EXPORT_SYMBOL(udbg_init_xenon_virtual);
 
+/* doesn't seem to actually get used? */
+#if 0
 void udbg_shutdown_xenon(void) {
   if (console_ctx.fb) {
     // cannot iounmap early bolted memory
@@ -159,4 +161,4 @@ void udbg_shutdown_xenon(void) {
 
   udbg_putc = NULL;
 }
-EXPORT_SYMBOL(udbg_shutdown_xenon);
+#endif

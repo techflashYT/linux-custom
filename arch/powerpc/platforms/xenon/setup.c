@@ -1,13 +1,10 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
 /*
- *  linux/arch/powerpc/platforms/xenon/xenon_setup.c
+ * arch/powerpc/platforms/xenon/xenon_setup.c
  *
- *  Maintained by: Felix Domke <tmbinc@elitedvb.net>
- *  Minor modification by: wolie <wolie@telia.com>
- *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version
- * 2 of the License, or (at your option) any later version.
+ * Maintained by: Felix Domke <tmbinc@elitedvb.net>
+ * Minor modification by: wolie <wolie@telia.com>
+ * Minor modification by: Techflash <officialTechflashYT@gmail.com>
  */
 
 #include <linux/kernel.h>
@@ -27,10 +24,7 @@
 #include "interrupt.h"
 #include "pci.h"
 #include "smp.h"
-
-#ifdef CONFIG_PPC_EARLY_DEBUG_XENON
-void udbg_init_xenon_virtual(void);
-#endif
+#include "udbg.h"
 
 static int xenon_early_init(void)
 {

@@ -171,18 +171,6 @@ int	xenon_smc_message_wait(void *msg)
 EXPORT_SYMBOL_GPL(xenon_smc_message_wait);
 
 
-static void show_logo(void)
-{
-	// 0x99 = LED_CONTROL
-	// 0x01 = SET
-	// [green] [red]
-	// bit position is light
-	// 8 = br, 4 = bl, 2 = tr, 1 = tl
-	unsigned char msg[16] = {0x99, 0x01, 0x78, 0};
-
-	xenon_smc_message(msg);
-}
-
 void xenon_smc_restart(void)
 {
 	unsigned char msg[16] = {0x82, 0x04, 0x30, 0};
@@ -274,7 +262,6 @@ static int xenon_smc_init_one (struct pci_dev *pdev, const struct pci_device_id 
 	smc.reply = _xenon_smc_reply;
 	smc.cached = _xenon_smc_cached_reply;
 
-	show_logo();
 	return 0;
 
 err_out_ioremap:

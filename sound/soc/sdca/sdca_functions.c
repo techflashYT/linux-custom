@@ -89,6 +89,7 @@ static int find_sdca_function(struct acpi_device *adev, void *data)
 {
 	struct fwnode_handle *function_node = acpi_fwnode_handle(adev);
 	struct sdca_device_data *sdca_data = data;
+	struct sdw_slave *slave = container_of(sdca_data, struct sdw_slave, sdca_data);
 	struct device *dev = &adev->dev;
 	struct fwnode_handle *control5; /* used to identify function type */
 	const char *function_name;
@@ -136,11 +137,13 @@ static int find_sdca_function(struct acpi_device *adev, void *data)
 		return ret;
 	}
 
-	ret = patch_sdca_function_type(sdca_data->interface_revision, &function_type);
-	if (ret < 0) {
-		dev_err(dev, "SDCA version %#x invalid function type %d\n",
-			sdca_data->interface_revision, function_type);
-		return ret;
+	if (!sdca_device_quirk_match(slave, SDCA_QUIRKS_SKIP_FUNC_TYPE_PATCHING)) {
+		ret = patch_sdca_function_type(sdca_data->interface_revision, &function_type);
+		if (ret < 0) {
+			dev_err(dev, "SDCA version %#x invalid function type %d\n",
+				sdca_data->interface_revision, function_type);
+			return ret;
+		}
 	}
 
 	function_name = get_sdca_function_name(function_type);
@@ -880,7 +883,8 @@ static int find_sdca_entity_control(struct device *dev, struct sdca_entity *enti
 			control->value = tmp;
 			control->has_fixed = true;
 		}
-
+		fallthrough;
+	case SDCA_ACCESS_MODE_RO:
 		control->deferrable = fwnode_property_read_bool(control_node,
 								"mipi-sdca-control-deferrable");
 		break;
@@ -911,6 +915,8 @@ static int find_sdca_entity_control(struct device *dev, struct sdca_entity *enti
 				       &tmp);
 	if (!ret)
 		control->interrupt_position = tmp;
+	else
+		control->interrupt_position = SDCA_NO_INTERRUPT;
 
 	control->label = find_sdca_control_label(dev, entity, control);
 	if (!control->label)

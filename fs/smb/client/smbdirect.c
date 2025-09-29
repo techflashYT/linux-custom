@@ -13,27 +13,23 @@
 #include "cifsproto.h"
 #include "smb2proto.h"
 
-static struct smbd_response *get_empty_queue_buffer(
-		struct smbd_connection *info);
-static struct smbd_response *get_receive_buffer(
+static struct smbdirect_recv_io *get_receive_buffer(
 		struct smbd_connection *info);
 static void put_receive_buffer(
 		struct smbd_connection *info,
-		struct smbd_response *response);
+		struct smbdirect_recv_io *response);
 static int allocate_receive_buffers(struct smbd_connection *info, int num_buf);
 static void destroy_receive_buffers(struct smbd_connection *info);
 
-static void put_empty_packet(
-		struct smbd_connection *info, struct smbd_response *response);
 static void enqueue_reassembly(
 		struct smbd_connection *info,
-		struct smbd_response *response, int data_length);
-static struct smbd_response *_get_first_reassembly(
+		struct smbdirect_recv_io *response, int data_length);
+static struct smbdirect_recv_io *_get_first_reassembly(
 		struct smbd_connection *info);
 
 static int smbd_post_recv(
 		struct smbd_connection *info,
-		struct smbd_response *response);
+		struct smbdirect_recv_io *response);
 
 static int smbd_post_send_empty(struct smbd_connection *info);
 
@@ -264,7 +260,7 @@ static inline void *smbd_request_payload(struct smbd_request *request)
 	return (void *)request->packet;
 }
 
-static inline void *smbd_response_payload(struct smbd_response *response)
+static inline void *smbdirect_recv_io_payload(struct smbdirect_recv_io *response)
 {
 	return (void *)response->packet;
 }
@@ -281,17 +277,19 @@ static void send_done(struct ib_cq *cq, struct ib_wc *wc)
 	log_rdma_send(INFO, "smbd_request 0x%p completed wc->status=%d\n",
 		request, wc->status);
 
-	if (wc->status != IB_WC_SUCCESS || wc->opcode != IB_WC_SEND) {
-		log_rdma_send(ERR, "wc->status=%d wc->opcode=%d\n",
-			wc->status, wc->opcode);
-		smbd_disconnect_rdma_connection(request->info);
-	}
-
 	for (i = 0; i < request->num_sge; i++)
 		ib_dma_unmap_single(sc->ib.dev,
 			request->sge[i].addr,
 			request->sge[i].length,
 			DMA_TO_DEVICE);
+
+	if (wc->status != IB_WC_SUCCESS || wc->opcode != IB_WC_SEND) {
+		log_rdma_send(ERR, "wc->status=%d wc->opcode=%d\n",
+			wc->status, wc->opcode);
+		mempool_free(request, info->request_mempool);
+		smbd_disconnect_rdma_connection(info);
+		return;
+	}
 
 	if (atomic_dec_and_test(&request->info->send_pending))
 		wake_up(&request->info->wait_send_pending);
@@ -317,12 +315,13 @@ static void dump_smbdirect_negotiate_resp(struct smbdirect_negotiate_resp *resp)
  * return value: true if negotiation is a success, false if failed
  */
 static bool process_negotiation_response(
-		struct smbd_response *response, int packet_length)
+		struct smbdirect_recv_io *response, int packet_length)
 {
-	struct smbd_connection *info = response->info;
-	struct smbdirect_socket *sc = &info->socket;
+	struct smbdirect_socket *sc = response->socket;
+	struct smbd_connection *info =
+		container_of(sc, struct smbd_connection, socket);
 	struct smbdirect_socket_parameters *sp = &sc->parameters;
-	struct smbdirect_negotiate_resp *packet = smbd_response_payload(response);
+	struct smbdirect_negotiate_resp *packet = smbdirect_recv_io_payload(response);
 
 	if (packet_length < sizeof(struct smbdirect_negotiate_resp)) {
 		log_rdma_event(ERR,
@@ -385,15 +384,15 @@ static bool process_negotiation_response(
 			info->max_frmr_depth * PAGE_SIZE);
 	info->max_frmr_depth = sp->max_read_write_size / PAGE_SIZE;
 
+	sc->recv_io.expected = SMBDIRECT_EXPECT_DATA_TRANSFER;
 	return true;
 }
 
 static void smbd_post_send_credits(struct work_struct *work)
 {
 	int ret = 0;
-	int use_receive_queue = 1;
 	int rc;
-	struct smbd_response *response;
+	struct smbdirect_recv_io *response;
 	struct smbd_connection *info =
 		container_of(work, struct smbd_connection,
 			post_send_credits_work);
@@ -407,20 +406,10 @@ static void smbd_post_send_credits(struct work_struct *work)
 	if (info->receive_credit_target >
 		atomic_read(&info->receive_credits)) {
 		while (true) {
-			if (use_receive_queue)
-				response = get_receive_buffer(info);
-			else
-				response = get_empty_queue_buffer(info);
-			if (!response) {
-				/* now switch to empty packet queue */
-				if (use_receive_queue) {
-					use_receive_queue = 0;
-					continue;
-				} else
-					break;
-			}
+			response = get_receive_buffer(info);
+			if (!response)
+				break;
 
-			response->type = SMBD_TRANSFER_DATA;
 			response->first_segment = false;
 			rc = smbd_post_recv(info, response);
 			if (rc) {
@@ -454,19 +443,23 @@ static void smbd_post_send_credits(struct work_struct *work)
 static void recv_done(struct ib_cq *cq, struct ib_wc *wc)
 {
 	struct smbdirect_data_transfer *data_transfer;
-	struct smbd_response *response =
-		container_of(wc->wr_cqe, struct smbd_response, cqe);
-	struct smbd_connection *info = response->info;
-	int data_length = 0;
+	struct smbdirect_recv_io *response =
+		container_of(wc->wr_cqe, struct smbdirect_recv_io, cqe);
+	struct smbdirect_socket *sc = response->socket;
+	struct smbdirect_socket_parameters *sp = &sc->parameters;
+	struct smbd_connection *info =
+		container_of(sc, struct smbd_connection, socket);
+	u32 data_offset = 0;
+	u32 data_length = 0;
+	u32 remaining_data_length = 0;
 
 	log_rdma_recv(INFO, "response=0x%p type=%d wc status=%d wc opcode %d byte_len=%d pkey_index=%u\n",
-		      response, response->type, wc->status, wc->opcode,
+		      response, sc->recv_io.expected, wc->status, wc->opcode,
 		      wc->byte_len, wc->pkey_index);
 
 	if (wc->status != IB_WC_SUCCESS || wc->opcode != IB_WC_RECV) {
 		log_rdma_recv(INFO, "wc->status=%d opcode=%d\n",
 			wc->status, wc->opcode);
-		smbd_disconnect_rdma_connection(info);
 		goto error;
 	}
 
@@ -476,25 +469,37 @@ static void recv_done(struct ib_cq *cq, struct ib_wc *wc)
 		response->sge.length,
 		DMA_FROM_DEVICE);
 
-	switch (response->type) {
+	switch (sc->recv_io.expected) {
 	/* SMBD negotiation response */
-	case SMBD_NEGOTIATE_RESP:
-		dump_smbdirect_negotiate_resp(smbd_response_payload(response));
+	case SMBDIRECT_EXPECT_NEGOTIATE_REP:
+		dump_smbdirect_negotiate_resp(smbdirect_recv_io_payload(response));
 		info->full_packet_received = true;
 		info->negotiate_done =
 			process_negotiation_response(response, wc->byte_len);
+		put_receive_buffer(info, response);
 		complete(&info->negotiate_completion);
-		break;
+		return;
 
 	/* SMBD data transfer packet */
-	case SMBD_TRANSFER_DATA:
-		data_transfer = smbd_response_payload(response);
-		data_length = le32_to_cpu(data_transfer->data_length);
+	case SMBDIRECT_EXPECT_DATA_TRANSFER:
+		data_transfer = smbdirect_recv_io_payload(response);
 
-		/*
-		 * If this is a packet with data playload place the data in
-		 * reassembly queue and wake up the reading thread
-		 */
+		if (wc->byte_len <
+		    offsetof(struct smbdirect_data_transfer, padding))
+			goto error;
+
+		remaining_data_length = le32_to_cpu(data_transfer->remaining_data_length);
+		data_offset = le32_to_cpu(data_transfer->data_offset);
+		data_length = le32_to_cpu(data_transfer->data_length);
+		if (wc->byte_len < data_offset ||
+		    (u64)wc->byte_len < (u64)data_offset + data_length)
+			goto error;
+
+		if (remaining_data_length > sp->max_fragmented_recv_size ||
+		    data_length > sp->max_fragmented_recv_size ||
+		    (u64)remaining_data_length + (u64)data_length > (u64)sp->max_fragmented_recv_size)
+			goto error;
+
 		if (data_length) {
 			if (info->full_packet_received)
 				response->first_segment = true;
@@ -503,16 +508,7 @@ static void recv_done(struct ib_cq *cq, struct ib_wc *wc)
 				info->full_packet_received = false;
 			else
 				info->full_packet_received = true;
-
-			enqueue_reassembly(
-				info,
-				response,
-				data_length);
-		} else
-			put_empty_packet(info, response);
-
-		if (data_length)
-			wake_up_interruptible(&info->wait_reassembly_queue);
+		}
 
 		atomic_dec(&info->receive_credits);
 		info->receive_credit_target =
@@ -540,15 +536,31 @@ static void recv_done(struct ib_cq *cq, struct ib_wc *wc)
 			info->keep_alive_requested = KEEP_ALIVE_PENDING;
 		}
 
+		/*
+		 * If this is a packet with data playload place the data in
+		 * reassembly queue and wake up the reading thread
+		 */
+		if (data_length) {
+			enqueue_reassembly(info, response, data_length);
+			wake_up_interruptible(&info->wait_reassembly_queue);
+		} else
+			put_receive_buffer(info, response);
+
 		return;
 
-	default:
-		log_rdma_recv(ERR,
-			"unexpected response type=%d\n", response->type);
+	case SMBDIRECT_EXPECT_NEGOTIATE_REQ:
+		/* Only server... */
+		break;
 	}
 
+	/*
+	 * This is an internal error!
+	 */
+	log_rdma_recv(ERR, "unexpected response type=%d\n", sc->recv_io.expected);
+	WARN_ON_ONCE(sc->recv_io.expected != SMBDIRECT_EXPECT_DATA_TRANSFER);
 error:
 	put_receive_buffer(info, response);
+	smbd_disconnect_rdma_connection(info);
 }
 
 static struct rdma_cm_id *smbd_create_id(
@@ -1042,7 +1054,7 @@ static int smbd_post_send_full_iter(struct smbd_connection *info,
  * The interaction is controlled by send/receive credit system
  */
 static int smbd_post_recv(
-		struct smbd_connection *info, struct smbd_response *response)
+		struct smbd_connection *info, struct smbdirect_recv_io *response)
 {
 	struct smbdirect_socket *sc = &info->socket;
 	struct smbdirect_socket_parameters *sp = &sc->parameters;
@@ -1069,6 +1081,7 @@ static int smbd_post_recv(
 	if (rc) {
 		ib_dma_unmap_single(sc->ib.dev, response->sge.addr,
 				    response->sge.length, DMA_FROM_DEVICE);
+		response->sge.length = 0;
 		smbd_disconnect_rdma_connection(info);
 		log_rdma_recv(ERR, "ib_post_recv failed rc=%d\n", rc);
 	}
@@ -1079,16 +1092,19 @@ static int smbd_post_recv(
 /* Perform SMBD negotiate according to [MS-SMBD] 3.1.5.2 */
 static int smbd_negotiate(struct smbd_connection *info)
 {
+	struct smbdirect_socket *sc = &info->socket;
 	int rc;
-	struct smbd_response *response = get_receive_buffer(info);
+	struct smbdirect_recv_io *response = get_receive_buffer(info);
 
-	response->type = SMBD_NEGOTIATE_RESP;
+	sc->recv_io.expected = SMBDIRECT_EXPECT_NEGOTIATE_REP;
 	rc = smbd_post_recv(info, response);
 	log_rdma_event(INFO, "smbd_post_recv rc=%d iov.addr=0x%llx iov.length=%u iov.lkey=0x%x\n",
 		       rc, response->sge.addr,
 		       response->sge.length, response->sge.lkey);
-	if (rc)
+	if (rc) {
+		put_receive_buffer(info, response);
 		return rc;
+	}
 
 	init_completion(&info->negotiate_completion);
 	info->negotiate_done = false;
@@ -1113,17 +1129,6 @@ static int smbd_negotiate(struct smbd_connection *info)
 	return rc;
 }
 
-static void put_empty_packet(
-		struct smbd_connection *info, struct smbd_response *response)
-{
-	spin_lock(&info->empty_packet_queue_lock);
-	list_add_tail(&response->list, &info->empty_packet_queue);
-	info->count_empty_packet_queue++;
-	spin_unlock(&info->empty_packet_queue_lock);
-
-	queue_work(info->workqueue, &info->post_send_credits_work);
-}
-
 /*
  * Implement Connection.FragmentReassemblyBuffer defined in [MS-SMBD] 3.1.1.1
  * This is a queue for reassembling upper layer payload and present to upper
@@ -1136,7 +1141,7 @@ static void put_empty_packet(
  */
 static void enqueue_reassembly(
 	struct smbd_connection *info,
-	struct smbd_response *response,
+	struct smbdirect_recv_io *response,
 	int data_length)
 {
 	spin_lock(&info->reassembly_queue_lock);
@@ -1160,34 +1165,15 @@ static void enqueue_reassembly(
  * Caller is responsible for locking
  * return value: the first entry if any, NULL if queue is empty
  */
-static struct smbd_response *_get_first_reassembly(struct smbd_connection *info)
+static struct smbdirect_recv_io *_get_first_reassembly(struct smbd_connection *info)
 {
-	struct smbd_response *ret = NULL;
+	struct smbdirect_recv_io *ret = NULL;
 
 	if (!list_empty(&info->reassembly_queue)) {
 		ret = list_first_entry(
 			&info->reassembly_queue,
-			struct smbd_response, list);
+			struct smbdirect_recv_io, list);
 	}
-	return ret;
-}
-
-static struct smbd_response *get_empty_queue_buffer(
-		struct smbd_connection *info)
-{
-	struct smbd_response *ret = NULL;
-	unsigned long flags;
-
-	spin_lock_irqsave(&info->empty_packet_queue_lock, flags);
-	if (!list_empty(&info->empty_packet_queue)) {
-		ret = list_first_entry(
-			&info->empty_packet_queue,
-			struct smbd_response, list);
-		list_del(&ret->list);
-		info->count_empty_packet_queue--;
-	}
-	spin_unlock_irqrestore(&info->empty_packet_queue_lock, flags);
-
 	return ret;
 }
 
@@ -1197,16 +1183,16 @@ static struct smbd_response *get_empty_queue_buffer(
  * pre-allocated in advance.
  * return value: the receive buffer, NULL if none is available
  */
-static struct smbd_response *get_receive_buffer(struct smbd_connection *info)
+static struct smbdirect_recv_io *get_receive_buffer(struct smbd_connection *info)
 {
-	struct smbd_response *ret = NULL;
+	struct smbdirect_recv_io *ret = NULL;
 	unsigned long flags;
 
 	spin_lock_irqsave(&info->receive_queue_lock, flags);
 	if (!list_empty(&info->receive_queue)) {
 		ret = list_first_entry(
 			&info->receive_queue,
-			struct smbd_response, list);
+			struct smbdirect_recv_io, list);
 		list_del(&ret->list);
 		info->count_receive_queue--;
 		info->count_get_receive_buffer++;
@@ -1223,13 +1209,18 @@ static struct smbd_response *get_receive_buffer(struct smbd_connection *info)
  * receive buffer is returned.
  */
 static void put_receive_buffer(
-	struct smbd_connection *info, struct smbd_response *response)
+	struct smbd_connection *info, struct smbdirect_recv_io *response)
 {
 	struct smbdirect_socket *sc = &info->socket;
 	unsigned long flags;
 
-	ib_dma_unmap_single(sc->ib.dev, response->sge.addr,
-		response->sge.length, DMA_FROM_DEVICE);
+	if (likely(response->sge.length != 0)) {
+		ib_dma_unmap_single(sc->ib.dev,
+				    response->sge.addr,
+				    response->sge.length,
+				    DMA_FROM_DEVICE);
+		response->sge.length = 0;
+	}
 
 	spin_lock_irqsave(&info->receive_queue_lock, flags);
 	list_add_tail(&response->list, &info->receive_queue);
@@ -1243,8 +1234,9 @@ static void put_receive_buffer(
 /* Preallocate all receive buffer on transport establishment */
 static int allocate_receive_buffers(struct smbd_connection *info, int num_buf)
 {
+	struct smbdirect_socket *sc = &info->socket;
+	struct smbdirect_recv_io *response;
 	int i;
-	struct smbd_response *response;
 
 	INIT_LIST_HEAD(&info->reassembly_queue);
 	spin_lock_init(&info->reassembly_queue_lock);
@@ -1255,10 +1247,6 @@ static int allocate_receive_buffers(struct smbd_connection *info, int num_buf)
 	spin_lock_init(&info->receive_queue_lock);
 	info->count_receive_queue = 0;
 
-	INIT_LIST_HEAD(&info->empty_packet_queue);
-	spin_lock_init(&info->empty_packet_queue_lock);
-	info->count_empty_packet_queue = 0;
-
 	init_waitqueue_head(&info->wait_receive_queues);
 
 	for (i = 0; i < num_buf; i++) {
@@ -1266,7 +1254,8 @@ static int allocate_receive_buffers(struct smbd_connection *info, int num_buf)
 		if (!response)
 			goto allocate_failed;
 
-		response->info = info;
+		response->socket = sc;
+		response->sge.length = 0;
 		list_add_tail(&response->list, &info->receive_queue);
 		info->count_receive_queue++;
 	}
@@ -1277,7 +1266,7 @@ allocate_failed:
 	while (!list_empty(&info->receive_queue)) {
 		response = list_first_entry(
 				&info->receive_queue,
-				struct smbd_response, list);
+				struct smbdirect_recv_io, list);
 		list_del(&response->list);
 		info->count_receive_queue--;
 
@@ -1288,12 +1277,9 @@ allocate_failed:
 
 static void destroy_receive_buffers(struct smbd_connection *info)
 {
-	struct smbd_response *response;
+	struct smbdirect_recv_io *response;
 
 	while ((response = get_receive_buffer(info)))
-		mempool_free(response, info->response_mempool);
-
-	while ((response = get_empty_queue_buffer(info)))
 		mempool_free(response, info->response_mempool);
 }
 
@@ -1332,7 +1318,7 @@ void smbd_destroy(struct TCP_Server_Info *server)
 	struct smbd_connection *info = server->smbd_conn;
 	struct smbdirect_socket *sc;
 	struct smbdirect_socket_parameters *sp;
-	struct smbd_response *response;
+	struct smbdirect_recv_io *response;
 	unsigned long flags;
 
 	if (!info) {
@@ -1351,17 +1337,16 @@ void smbd_destroy(struct TCP_Server_Info *server)
 			sc->status == SMBDIRECT_SOCKET_DISCONNECTED);
 	}
 
+	log_rdma_event(INFO, "cancelling post_send_credits_work\n");
+	disable_work_sync(&info->post_send_credits_work);
+
 	log_rdma_event(INFO, "destroying qp\n");
 	ib_drain_qp(sc->ib.qp);
 	rdma_destroy_qp(sc->rdma.cm_id);
 	sc->ib.qp = NULL;
 
 	log_rdma_event(INFO, "cancelling idle timer\n");
-	cancel_delayed_work_sync(&info->idle_timer_work);
-
-	log_rdma_event(INFO, "wait for all send posted to IB to finish\n");
-	wait_event(info->wait_send_pending,
-		atomic_read(&info->send_pending) == 0);
+	disable_delayed_work_sync(&info->idle_timer_work);
 
 	/* It's not possible for upper layer to get to reassembly */
 	log_rdma_event(INFO, "drain the reassembly queue\n");
@@ -1381,8 +1366,7 @@ void smbd_destroy(struct TCP_Server_Info *server)
 
 	log_rdma_event(INFO, "free receive buffers\n");
 	wait_event(info->wait_receive_queues,
-		info->count_receive_queue + info->count_empty_packet_queue
-			== sp->recv_credit_max);
+		info->count_receive_queue == sp->recv_credit_max);
 	destroy_receive_buffers(info);
 
 	/*
@@ -1494,17 +1478,17 @@ static int allocate_caches_and_workqueue(struct smbd_connection *info)
 	if (!info->request_mempool)
 		goto out1;
 
-	scnprintf(name, MAX_NAME_LEN, "smbd_response_%p", info);
+	scnprintf(name, MAX_NAME_LEN, "smbdirect_recv_io_%p", info);
 
 	struct kmem_cache_args response_args = {
-		.align		= __alignof__(struct smbd_response),
-		.useroffset	= (offsetof(struct smbd_response, packet) +
+		.align		= __alignof__(struct smbdirect_recv_io),
+		.useroffset	= (offsetof(struct smbdirect_recv_io, packet) +
 				   sizeof(struct smbdirect_data_transfer)),
 		.usersize	= sp->max_recv_size - sizeof(struct smbdirect_data_transfer),
 	};
 	info->response_cache =
 		kmem_cache_create(name,
-				  sizeof(struct smbd_response) + sp->max_recv_size,
+				  sizeof(struct smbdirect_recv_io) + sp->max_recv_size,
 				  &response_args, SLAB_HWCACHE_ALIGN);
 	if (!info->response_cache)
 		goto out2;
@@ -1680,8 +1664,10 @@ static struct smbd_connection *_smbd_get_connection(
 		goto rdma_connect_failed;
 	}
 
-	wait_event_interruptible(
-		info->conn_wait, sc->status != SMBDIRECT_SOCKET_CONNECTING);
+	wait_event_interruptible_timeout(
+		info->conn_wait,
+		sc->status != SMBDIRECT_SOCKET_CONNECTING,
+		msecs_to_jiffies(RDMA_RESOLVE_TIMEOUT));
 
 	if (sc->status != SMBDIRECT_SOCKET_CONNECTED) {
 		log_rdma_event(ERR, "rdma_connect failed port=%d\n", port);
@@ -1732,10 +1718,9 @@ allocate_mr_failed:
 	return NULL;
 
 negotiation_failed:
-	cancel_delayed_work_sync(&info->idle_timer_work);
+	disable_delayed_work_sync(&info->idle_timer_work);
 	destroy_caches_and_workqueue(info);
 	sc->status = SMBDIRECT_SOCKET_NEGOTIATE_FAILED;
-	init_waitqueue_head(&info->conn_wait);
 	rdma_disconnect(sc->rdma.cm_id);
 	wait_event(info->conn_wait,
 		sc->status == SMBDIRECT_SOCKET_DISCONNECTED);
@@ -1794,7 +1779,7 @@ try_again:
 int smbd_recv(struct smbd_connection *info, struct msghdr *msg)
 {
 	struct smbdirect_socket *sc = &info->socket;
-	struct smbd_response *response;
+	struct smbdirect_recv_io *response;
 	struct smbdirect_data_transfer *data_transfer;
 	size_t size = iov_iter_count(&msg->msg_iter);
 	int to_copy, to_read, data_read, offset;
@@ -1830,7 +1815,7 @@ again:
 		offset = info->first_entry_offset;
 		while (data_read < size) {
 			response = _get_first_reassembly(info);
-			data_transfer = smbd_response_payload(response);
+			data_transfer = smbdirect_recv_io_payload(response);
 			data_length = le32_to_cpu(data_transfer->data_length);
 			remaining_data_length =
 				le32_to_cpu(
@@ -2007,7 +1992,11 @@ int smbd_send(struct TCP_Server_Info *server,
 	 */
 
 	wait_event(info->wait_send_pending,
-		atomic_read(&info->send_pending) == 0);
+		atomic_read(&info->send_pending) == 0 ||
+		sc->status != SMBDIRECT_SOCKET_CONNECTED);
+
+	if (sc->status != SMBDIRECT_SOCKET_CONNECTED && rc == 0)
+		rc = -EAGAIN;
 
 	return rc;
 }
@@ -2088,7 +2077,7 @@ static void destroy_mr_list(struct smbd_connection *info)
 	struct smbdirect_socket *sc = &info->socket;
 	struct smbd_mr *mr, *tmp;
 
-	cancel_work_sync(&info->mr_recovery_work);
+	disable_work_sync(&info->mr_recovery_work);
 	list_for_each_entry_safe(mr, tmp, &info->mr_list, list) {
 		if (mr->state == MR_INVALIDATED)
 			ib_dma_unmap_sg(sc->ib.dev, mr->sgt.sgl,

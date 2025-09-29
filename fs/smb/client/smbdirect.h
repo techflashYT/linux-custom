@@ -110,10 +110,6 @@ struct smbd_connection {
 	int count_receive_queue;
 	spinlock_t receive_queue_lock;
 
-	struct list_head empty_packet_queue;
-	int count_empty_packet_queue;
-	spinlock_t empty_packet_queue_lock;
-
 	wait_queue_head_t wait_receive_queues;
 
 	/* Reassembly queue */
@@ -161,11 +157,6 @@ struct smbd_connection {
 	unsigned int count_send_empty;
 };
 
-enum smbd_message_type {
-	SMBD_NEGOTIATE_RESP,
-	SMBD_TRANSFER_DATA,
-};
-
 /* Maximum number of SGEs used by smbdirect.c in any send work request */
 #define SMBDIRECT_MAX_SEND_SGE	6
 
@@ -184,24 +175,6 @@ struct smbd_request {
 
 /* Maximum number of SGEs used by smbdirect.c in any receive work request */
 #define SMBDIRECT_MAX_RECV_SGE	1
-
-/* The context for a SMBD response */
-struct smbd_response {
-	struct smbd_connection *info;
-	struct ib_cqe cqe;
-	struct ib_sge sge;
-
-	enum smbd_message_type type;
-
-	/* Link to receive queue or reassembly queue */
-	struct list_head list;
-
-	/* Indicate if this is the 1st packet of a payload */
-	bool first_segment;
-
-	/* SMBD packet header and payload follows this structure */
-	u8 packet[];
-};
 
 /* Create a SMBDirect session */
 struct smbd_connection *smbd_get_connection(

@@ -137,20 +137,22 @@ static umode_t xenon_is_visible(const void *data,
 		case hwmon_pwm_input:
 			return 0644;
 		default:
+			break;
 		}
-		return 0;
+		break;
 	case hwmon_temp:
 		switch (attr) {
 		case hwmon_temp_label:
 		case hwmon_temp_input:
 			return 0444;
 		default:
+			break;
 		}
-		return 0;
+		break;
 	default:
-		return 0;
+		break;
 	}
-
+	return 0;
 }
 
 static const struct hwmon_channel_info *xenon_info[] = {

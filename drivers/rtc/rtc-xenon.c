@@ -15,7 +15,7 @@
 #define DRV_NAME	"rtc-xenon"
 #define DRV_VERSION	"0.1"
 
-	/* for whatever reason, 15.Nov.2001 00:00 GMT */
+	/* 15.Nov.2001 00:00 GMT (original Xbox release date in NA) */
 #define	RTC_BASE	1005782400UL
 
 

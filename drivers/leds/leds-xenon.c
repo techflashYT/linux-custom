@@ -46,7 +46,7 @@ static void xenon_led_set(struct led_classdev *cdev,
 	struct xenon_led *led = container_of(cdev, struct xenon_led, cdev);
 	unsigned char smc_msg[16];
 	unsigned char led_state_old = led_state;
-	int flags = 0;
+	unsigned long flags = 0;
 
 	/* lock it so we can't mangle the led_state if we get here twice */
 	spin_lock_irqsave(&led_lock, flags);

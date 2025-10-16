@@ -17,6 +17,7 @@
 #include <asm/smp.h>
 #include <asm/udbg.h>
 
+#include "smp.h"
 #include "interrupt.h"
 
 #define DEBUG

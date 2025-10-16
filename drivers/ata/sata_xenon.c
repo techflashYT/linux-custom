@@ -171,7 +171,7 @@ static int xenon_softreset(struct ata_link *link, unsigned int *classes, unsigne
 
 static void xenon_bmdma_error_handler(struct ata_port *ap)
 {
-	ata_do_eh(ap, ata_std_prereset, xenon_softreset, sata_std_hardreset, ata_std_postreset);
+	ata_std_error_handler(ap);
 }
 
 

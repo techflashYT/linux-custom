@@ -151,7 +151,7 @@ static void xenon_break_ctl(struct uart_port *port, int break_state)
 static void xenon_set_termios(struct uart_port *port,
 							  struct ktermios *new, const struct ktermios *old)
 {
-	int baud, quot, cflag = new->c_cflag;
+	int cflag = new->c_cflag;
 
 	dprintk("Xenon xenon_set_termios()");
 	/* get the byte size */
@@ -191,9 +191,12 @@ static void xenon_set_termios(struct uart_port *port,
 	else
 		pr_debug(" - RTS/CTS is disabled\n");
 
+	/* FIXME: never actually used? */
+#if 0
 	/* Set baud rate */
 	baud = uart_get_baud_rate(port, new, old, 0, port->uartclk/16);
 	quot = uart_get_divisor(port, baud);
+#endif
 }
 
 // Filthy hack to get around the fact that the xbox 360 SMC doesn't actually have proper interrupts for UART receiving.

@@ -96,7 +96,7 @@ static struct miscdevice smc_dev = {
 	&smc_fops
 };
 
-int __init smc_init(void)
+static int __init smc_init(void)
 {
 	int ret = 0;
 
@@ -106,7 +106,7 @@ int __init smc_init(void)
 	return ret;
 }
 
-void __exit smc_exit(void)
+static void __exit smc_exit(void)
 {
 	misc_deregister(&smc_dev);
 }

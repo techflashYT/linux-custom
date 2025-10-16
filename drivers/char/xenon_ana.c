@@ -173,7 +173,7 @@ static struct miscdevice ana_dev = {
 	&ana_fops
 };
 
-int __init ana_init(void)
+static int __init ana_init(void)
 {
 	int ret = 0;
 
@@ -183,7 +183,7 @@ int __init ana_init(void)
 	return ret;
 }
 
-void __exit ana_exit(void)
+static void __exit ana_exit(void)
 {
 	misc_deregister(&ana_dev);
 }

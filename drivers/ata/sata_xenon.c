@@ -70,7 +70,6 @@ enum {
 static int xenon_init_one (struct pci_dev *pdev, const struct pci_device_id *ent);
 static int xenon_scr_read (struct ata_link *link, unsigned int sc_reg, u32 *val);
 static int xenon_scr_write (struct ata_link *link, unsigned int sc_reg, u32 val);//void
-static void xenon_bmdma_error_handler(struct ata_port *ap);
 
 static const struct pci_device_id xenon_pci_tbl[] = {
 	{ PCI_VDEVICE(MICROSOFT, 0x5803), 0 }, // Hdd
@@ -93,7 +92,6 @@ static struct scsi_host_template xenon_sht = {
 static struct ata_port_operations xenon_ops = {
 	.inherits		= &ata_bmdma_port_ops,
 // 	.lost_interrupt		= ATA_OP_NULL,
-//	.error_handler		= xenon_bmdma_error_handler,
 	.scr_read		= xenon_scr_read,
 	.scr_write		= xenon_scr_write,
 };
@@ -144,36 +142,6 @@ static int xenon_scr_write (struct ata_link *link, unsigned int sc_reg, u32 val)
 	pci_write_config_dword(pdev, cfg_addr, val);
 	return 0;
 }
-
-static int xenon_softreset(struct ata_link *link, unsigned int *classes, unsigned long deadline)
-{
-	struct ata_port *ap = link->ap;
-	struct pci_dev *pdev = to_pci_dev(ap->host->dev);
-		/* Host 0 (used for DVD-ROM) has a quirk when used with
-		   an Toshiba/Samsung drive: It can hang after a device reset.
-
-		   While the exact reason is unclear (anyone with a SATA port
-		   analyzer?), this workaround will not let the reset happen, and
-		   emulate the detection of an ATAPI device.
-
-		   When the workaround is enabled, only ATAPI devices are supported
-		   on host 0, but on this hardware, nothing else is possible anyway. */
-	if (pdev->device == 0x5802)
-	{
-		classes[0] = ATA_DEV_ATAPI;
-		classes[1] = ATA_DEV_NONE;
-		printk(KERN_WARNING "Simulating reset of SATA device 0x5802\n");
-		return -EIO;
-	} else {
-		return ata_sff_softreset(link, classes, deadline);
-	}
-}
-
-static void xenon_bmdma_error_handler(struct ata_port *ap)
-{
-	ata_std_error_handler(ap);
-}
-
 
 static int xenon_init_one (struct pci_dev *pdev, const struct pci_device_id *ent)
 {

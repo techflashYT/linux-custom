@@ -266,6 +266,7 @@ struct sis190_private {
 	void __iomem *mmio_addr;
 	struct pci_dev *pci_dev;
 	struct net_device *dev;
+	unsigned int card_type;
 	spinlock_t lock;
 	u32 rx_buf_sz;
 	u32 cur_rx;
@@ -974,7 +975,14 @@ static void sis190_phy_task(struct work_struct *work)
 		netif_info(tp, link, dev, "mii lpa=%04x adv=%04x exp=%04x\n",
 			   val, adv, autoexp);
 
-		if (val & LPA_NPAGE && autoexp & EXPANSION_NWAY) {
+		/*
+		 * Does this card even support gigabit?
+		 * Neither SiS190 nor Xenon Ethernet (SiS190-based) do, yet some hardware
+		 * reports values we would interpret as supporting gigabit, so only bother
+		 * checking if we know the hardware might support it.
+		 * The only Gigabit card we support is type 1 (Sis191).
+		 */
+		if (tp->card_type == 1 && val & LPA_NPAGE && autoexp & EXPANSION_NWAY) {
 			/* check for gigabit speed */
 			gigadv = mdio_read(ioaddr, phy_id, MII_CTRL1000);
 			gigrec = mdio_read(ioaddr, phy_id, MII_STAT1000);
@@ -1893,6 +1901,7 @@ static int sis190_init_one(struct pci_dev *pdev,
 	pci_set_drvdata(pdev, dev);
 
 	tp = netdev_priv(dev);
+	tp->card_type = ent->driver_data;
 	ioaddr = tp->mmio_addr;
 
 	rc = sis190_get_mac_addr(pdev, dev);

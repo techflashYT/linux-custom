@@ -171,7 +171,7 @@ static void xenos_update(struct drm_simple_display_pipe *pipe,
 
 		if (!drm_rect_intersect(&dst_clip, &damage))
 			continue;
-		
+
 		xenos_blit(dst, src, damage, fb);
 	}
 

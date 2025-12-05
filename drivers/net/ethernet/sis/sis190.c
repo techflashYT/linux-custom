@@ -266,6 +266,7 @@ struct sis190_private {
 	void __iomem *mmio_addr;
 	struct pci_dev *pci_dev;
 	struct net_device *dev;
+	unsigned int card_type;
 	spinlock_t lock;
 	u32 rx_buf_sz;
 	u32 cur_rx;
@@ -319,6 +320,7 @@ static struct mii_chip_info {
 	{ "Broadcom PHY AC131",   { 0x0143, 0xbc70 }, LAN, 0 },
 	{ "Agere PHY ET1101B",    { 0x0282, 0xf010 }, LAN, 0 },
 	{ "Marvell PHY 88E1111",  { 0x0141, 0x0cc0 }, LAN, F_PHY_88E1111 },
+	{ "Marvell PHY 88E3015",  { 0x0141, 0x0e20 }, LAN, F_PHY_88E1111 },
 	{ "Realtek PHY RTL8201",  { 0x0000, 0x8200 }, LAN, 0 },
 	{ NULL, }
 };
@@ -328,11 +330,13 @@ static const struct {
 } sis_chip_info[] = {
 	{ "SiS 190 PCI Fast Ethernet adapter" },
 	{ "SiS 191 PCI Gigabit Ethernet adapter" },
+	{ "Xenon PCI Fast Ethernet adapter" }
 };
 
 static const struct pci_device_id sis190_pci_tbl[] = {
-	{ PCI_DEVICE(PCI_VENDOR_ID_SI, 0x0190), 0, 0, 0 },
-	{ PCI_DEVICE(PCI_VENDOR_ID_SI, 0x0191), 0, 0, 1 },
+	{ PCI_DEVICE(PCI_VENDOR_ID_SI,        0x0190), 0, 0, 0 },
+	{ PCI_DEVICE(PCI_VENDOR_ID_SI,        0x0191), 0, 0, 1 },
+	{ PCI_DEVICE(PCI_VENDOR_ID_MICROSOFT, 0x580a), 0, 0, 2 },
 	{ 0, },
 };
 
@@ -971,7 +975,14 @@ static void sis190_phy_task(struct work_struct *work)
 		netif_info(tp, link, dev, "mii lpa=%04x adv=%04x exp=%04x\n",
 			   val, adv, autoexp);
 
-		if (val & LPA_NPAGE && autoexp & EXPANSION_NWAY) {
+		/*
+		 * Does this card even support gigabit?
+		 * Neither SiS190 nor Xenon Ethernet (SiS190-based) do, yet some hardware
+		 * reports values we would interpret as supporting gigabit, so only bother
+		 * checking if we know the hardware might support it.
+		 * The only Gigabit card we support is type 1 (Sis191).
+		 */
+		if (tp->card_type == 1 && val & LPA_NPAGE && autoexp & EXPANSION_NWAY) {
 			/* check for gigabit speed */
 			gigadv = mdio_read(ioaddr, phy_id, MII_CTRL1000);
 			gigrec = mdio_read(ioaddr, phy_id, MII_STAT1000);
@@ -1717,6 +1728,16 @@ static int sis190_get_mac_addr(struct pci_dev *pdev, struct net_device *dev)
 
 		if (reg & 0x00000001)
 			rc = sis190_get_mac_addr_from_apc(pdev, dev);
+
+		if (rc < 0) {
+			// FIXME: Need to get the MAC from NAND.
+			// \x7C\x1E\x52\x0D\xF2\xAF
+			u8 addr[ETH_ALEN] = { 0x7C, 0x1E, 0x52, 0x0D, 0xF2, 0xAF }; /* same as xell */
+
+			pr_info("%s: HACK: hardcoding MAC address\n", pci_name(pdev));
+			eth_hw_addr_set(dev, addr);
+			rc = 0;
+		}
 	}
 	return rc;
 }
@@ -1880,6 +1901,7 @@ static int sis190_init_one(struct pci_dev *pdev,
 	pci_set_drvdata(pdev, dev);
 
 	tp = netdev_priv(dev);
+	tp->card_type = ent->driver_data;
 	ioaddr = tp->mmio_addr;
 
 	rc = sis190_get_mac_addr(pdev, dev);

@@ -277,6 +277,13 @@
 			reg = <0x0d8001ec 0x8>;
 		};
 
+		latte_aes: aes@d020000 {
+			compatible = "nintendo,latte-aes";
+			reg = <0x0d020000 0x14>;
+			interrupts = <2>;
+			interrupt-parent = <&latte_pic>;
+		};
+
 		sata@d160400 {
 			compatible = "nintendo,latte-ahci";
 			reg = <0x0d160400 0x808>;

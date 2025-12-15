@@ -18,6 +18,7 @@
 #include <linux/spinlock.h>
 #include <linux/platform_device.h>
 #include <linux/dma-mapping.h>
+#include <asm/cacheflush.h>
 #include <crypto/aes.h>
 #include <crypto/internal/skcipher.h>
 
@@ -51,6 +52,7 @@ struct wiiu_aes_engine {
 	struct device *dev;
 	void __iomem *base;
 	spinlock_t lock;
+	void* buffer;
 	struct skcipher_alg alg;
 };
 
@@ -87,38 +89,29 @@ do_crypt(struct wiiu_aes_ctx* ctx, const void *src, void *dst, u32 len, u32 flag
 	u32 counter = OP_TIMEOUT;
 
 	/* Is dma_map_single the right API here? No highmem issues? */
-	ctx->in_place = src == dst;
-	if (ctx->in_place) {
-		ctx->src_dma = dma_map_single(dev, (void*)src, len, DMA_BIDIRECTIONAL);
-		if (dma_mapping_error(dev, ctx->src_dma))
-			return 1;
-	} else {
-		ctx->src_dma = dma_map_single(dev, (void*)src, len, DMA_TO_DEVICE);
-		if (dma_mapping_error(dev, ctx->src_dma))
-			return 1;
-
-		ctx->dst_dma = dma_map_single(dev, dst, len, DMA_FROM_DEVICE);
-		if (dma_mapping_error(dev, ctx->dst_dma)) {
-			dma_unmap_single(dev, ctx->src_dma, len, DMA_TO_DEVICE);
-			return 1;
-		}
-	}
+	ctx->src_dma = dma_map_single(dev, engine->buffer, AES_BLOCK_SIZE*0x1000, DMA_BIDIRECTIONAL);
+	if (dma_mapping_error(dev, ctx->src_dma))
+		return 1;
 
 	while (blocks > 0) {
-		u32 chunk_blocks = blocks - 1;
-		if (chunk_blocks > 0xfff)
-			chunk_blocks = 0xfff;
+		u32 chunk_blocks = blocks;
+		if (chunk_blocks > 0x1000)
+			chunk_blocks = 0x1000;
+
+		/*
+		 * Copy the data to be processed into a buffer that the AES engine
+		 * will like, and make sure it hits RAM.
+		 * I hate this -Loganius. 
+		 */
+		memcpy(engine->buffer, src + offset, chunk_blocks << 4);
+		flush_dcache_range((u32)engine->buffer, ((u32)engine->buffer) + (chunk_blocks << 4));
 
 		/* Set the addresses for DMA */
-		iowrite32be(ctx->src_dma + offset, engine->base + AES_SRC);
-		if (ctx->in_place) {
-			iowrite32be(ctx->src_dma + offset, engine->base + AES_DEST);
-		} else {
-			iowrite32be(ctx->dst_dma + offset, engine->base + AES_DEST);
-		}
+		iowrite32be(ctx->src_dma, engine->base + AES_SRC);
+		iowrite32be(ctx->src_dma, engine->base + AES_DEST);
 
 		/* Start the operation */
-		iowrite32be(flags | chunk_blocks, engine->base + AES_CTRL);
+		iowrite32be(flags | (chunk_blocks - 1), engine->base + AES_CTRL);
 
 		/* TODO: maybe enabling IRQs might be better on the CPU?  But that loop
 		 * seems plenty fast so maybe not. */
@@ -127,17 +120,15 @@ do_crypt(struct wiiu_aes_ctx* ctx, const void *src, void *dst, u32 len, u32 flag
 			cpu_relax();
 		} while ((status & AES_CTRL_EXEC) && --counter);
 
-		offset += (chunk_blocks + 1) << 4;
-		blocks -= (chunk_blocks + 1);
+		/* Copy the data to the destination buffer. */
+		memcpy(dst + offset, engine->buffer, chunk_blocks << 4);
+
+		offset += chunk_blocks << 4;
+		blocks -= chunk_blocks;
 		flags |= AES_CTRL_IV;
 	}
 
-	if (ctx->in_place) {
-		dma_unmap_single(dev, ctx->src_dma, len, DMA_BIDIRECTIONAL);
-	} else {
-		dma_unmap_single(dev, ctx->dst_dma, len, DMA_FROM_DEVICE);
-		dma_unmap_single(dev, ctx->src_dma, len, DMA_TO_DEVICE);
-	}
+	dma_unmap_single(dev, ctx->src_dma, len, DMA_BIDIRECTIONAL);
 
 	/* 0 means timeout, oh no! */
 	return !counter;
@@ -321,6 +312,7 @@ static int wiiu_aes_probe(struct platform_device *pdev)
 		goto eiomap;
 
 	platform_set_drvdata(pdev, engine);
+	engine->buffer = devm_kmalloc(dev, AES_BLOCK_SIZE*0x1000, GFP_KERNEL);
 
 	dev_notice(dev, "Nintendo Wii U AES engine enabled.\n");
 	return 0;

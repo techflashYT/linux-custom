@@ -32,6 +32,7 @@ void __setup_cpu_604(unsigned long offset, struct cpu_spec *spec);
 void __setup_cpu_750(unsigned long offset, struct cpu_spec *spec);
 void __setup_cpu_750cx(unsigned long offset, struct cpu_spec *spec);
 void __setup_cpu_750fx(unsigned long offset, struct cpu_spec *spec);
+void __setup_cpu_espresso(unsigned long offset, struct cpu_spec* spec);
 void __setup_cpu_7400(unsigned long offset, struct cpu_spec *spec);
 void __setup_cpu_7410(unsigned long offset, struct cpu_spec *spec);
 void __setup_cpu_745x(unsigned long offset, struct cpu_spec *spec);

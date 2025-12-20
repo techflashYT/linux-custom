@@ -169,11 +169,11 @@ static unsigned int latte_pic_get_irq(struct irq_domain *h)
 
 		/* AHBLT is mapped above 32 (LATTE_AHBALL_NR_IRQS) */
 		irq = __ffs(irq_status) + LATTE_AHBALL_NR_IRQS;
-		return irq_linear_revmap(h, irq);
+		return irq_find_mapping(h, irq);
 	}
 
 	irq = __ffs(irq_status);
-	return irq_linear_revmap(h, irq);
+	return irq_find_mapping(h, irq);
 }
 
 /*

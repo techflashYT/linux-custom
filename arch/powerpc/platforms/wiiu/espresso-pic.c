@@ -127,7 +127,7 @@ unsigned int espresso_pic_get_irq(void)
 
 	/* Return first IRQ */
 	irq = __ffs(irq_status);
-	return irq_linear_revmap(espresso_irq_domain, irq);
+	return irq_find_mapping(espresso_irq_domain, irq);
 }
 
 void __init espresso_pic_init(void)
@@ -176,7 +176,7 @@ void __init espresso_pic_init(void)
 	/* Save irq domain for espresso_pic_get_irq */
 	espresso_irq_domain = host;
 
-	irq_set_default_host(host);
+	irq_set_default_domain(host);
 
 out:
 	of_node_put(np);

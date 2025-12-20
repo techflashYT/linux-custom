@@ -147,7 +147,7 @@ MODULE_DEVICE_TABLE(of, ahci_of_match);
 
 static struct platform_driver ahci_driver = {
 	.probe = ahci_probe,
-	.remove_new = ata_platform_remove_one,
+	.remove = ata_platform_remove_one,
 	.shutdown = ahci_platform_shutdown,
 	.driver = {
 		.name = DRV_NAME,

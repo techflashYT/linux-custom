@@ -166,7 +166,7 @@ __after_mmu_off:
 	bl	setup_usbgecko_bat
 #endif
 #if defined(CONFIG_PPC_EARLY_DEBUG_DEFUSE) || defined(CONFIG_PPC_EARLY_DEBUG_LATTEIPC)
-	bl setup_latte_bat
+	bl	setup_latte_bat
 #endif
 
 /*
@@ -1220,6 +1220,7 @@ SYM_FUNC_START_LOCAL(setup_latte_bat)
 	mtspr	SPRN_DBAT1L, r8
 	mtspr	SPRN_DBAT1U, r11
 	blr
+SYM_FUNC_END(setup_latte_bat)
 #endif
 
 	.data

@@ -284,7 +284,7 @@ static struct skcipher_alg wiiu_alg = {
 	.ivsize			= AES_BLOCK_SIZE,
 };
 
-static int wiiu_aes_remove(struct platform_device *pdev)
+static void wiiu_aes_remove(struct platform_device *pdev)
 {
 	struct device *dev = &pdev->dev;
 	struct wiiu_aes_engine *engine = platform_get_drvdata(pdev);
@@ -293,7 +293,7 @@ static int wiiu_aes_remove(struct platform_device *pdev)
 	devm_iounmap(dev, engine->base);
 	engine->base = NULL;
 
-	return 0;
+	return;
 }
 
 static int wiiu_aes_probe(struct platform_device *pdev)

@@ -12,6 +12,7 @@
 #include <asm/udbg.h>
 
 #include "latte-ipc.h"
+#include "udbg_latteipc.h"
 
 #define WIIU_LOADER_CMD_PRINT 0x01000000
 

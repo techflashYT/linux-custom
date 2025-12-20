@@ -16,6 +16,8 @@
 #include <asm/fixmap.h>
 #include <asm/udbg.h>
 
+#include "latte-ipc.h"
+
 typedef struct __attribute__((packed)) {
 	__be32 ppcmsg;		/* Any-purpose u32 mailbox (""ppc side"") */
 	__be32 ppcctrl;		/* Control+flags (ppc side) */

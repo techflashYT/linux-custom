@@ -3,7 +3,7 @@
 #include <linux/of.h>
 #include <linux/platform_device.h>
 
-#include <drm/drm_aperture.h>
+#include <drm/clients/drm_client_setup.h>
 #include <drm/drm_atomic.h>
 #include <drm/drm_atomic_state_helper.h>
 #include <drm/drm_connector.h>
@@ -11,7 +11,7 @@
 #include <drm/drm_damage_helper.h>
 #include <drm/drm_device.h>
 #include <drm/drm_drv.h>
-#include <drm/drm_fbdev_generic.h>
+#include <drm/drm_fbdev_ttm.h>
 #include <drm/drm_fb_dma_helper.h>
 #include <drm/drm_framebuffer.h>
 #include <drm/drm_format_helper.h>
@@ -28,7 +28,6 @@
 
 #define DRIVER_NAME "r600fb"
 #define DRIVER_DESC "DRM framebuffer driver for R600 cards"
-#define DRIVER_DATE "20240517"
 #define DRIVER_MAJOR 1
 #define DRIVER_MINOR 0
 
@@ -125,8 +124,25 @@ r600fb_primary_plane_helper_atomic_update(struct drm_plane *plane,
 	writereg(D1 + DGRPH_PRIMARY_SURFACE_ADDRESS, drm_fb_dma_get_gem_addr(plane_state->fb, plane_state, 0));
 }
 
+
+static int r600fb_primary_plane_helper_atomic_check(struct drm_plane *plane,
+						    struct drm_atomic_state *state)
+{
+	struct drm_plane_state *new_plane_state = drm_atomic_get_new_plane_state(state, plane);
+	struct drm_crtc *new_crtc = new_plane_state->crtc;
+	struct drm_crtc_state *new_crtc_state = NULL;
+
+	if (new_crtc)
+		new_crtc_state = drm_atomic_get_new_crtc_state(state, new_crtc);
+
+	return drm_atomic_helper_check_plane_state(new_plane_state, new_crtc_state,
+						   DRM_PLANE_NO_SCALING,
+						   DRM_PLANE_NO_SCALING,
+						   false, false);
+}
+
 static const struct drm_plane_helper_funcs r600fb_primary_plane_helper_funcs = {
-	.atomic_check = drm_plane_helper_atomic_check,
+	.atomic_check = r600fb_primary_plane_helper_atomic_check,
 	.atomic_update = r600fb_primary_plane_helper_atomic_update,
 };
 
@@ -283,7 +299,7 @@ static struct r600fb_device *r600fb_device_create(struct drm_driver *drv,
 	return sdev;
 }
 
-struct drm_gem_object *r600fb_create_object(struct drm_device *dev, size_t size)
+static struct drm_gem_object *r600fb_create_object(struct drm_device *dev, size_t size)
 {
 	struct drm_gem_dma_object *obj;
 
@@ -307,9 +323,9 @@ DEFINE_DRM_GEM_DMA_FOPS(r600fb_fops);
 
 static struct drm_driver r600fb_driver = {
 	DRM_GEM_DMA_DRIVER_OPS,
+	DRM_FBDEV_TTM_DRIVER_OPS,
 	.name = DRIVER_NAME,
 	.desc = DRIVER_DESC,
-	.date = DRIVER_DATE,
 	.major = DRIVER_MAJOR,
 	.minor = DRIVER_MINOR,
 	.driver_features = DRIVER_ATOMIC | DRIVER_GEM | DRIVER_MODESET,
@@ -337,7 +353,7 @@ static int r600fb_probe(struct platform_device *pdev)
 	if (ret)
 		return ret;
 
-	drm_fbdev_generic_setup(dev, 32);
+	drm_client_setup(dev, NULL);
 
 	return 0;
 }
@@ -364,7 +380,7 @@ static struct platform_driver r600fb_platform_driver = {
 		.of_match_table = r600fb_of_match_table,
 	},
 	.probe = r600fb_probe,
-	.remove_new = r600fb_remove,
+	.remove = r600fb_remove,
 };
 
 module_platform_driver(r600fb_platform_driver);

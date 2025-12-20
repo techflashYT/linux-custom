@@ -404,11 +404,25 @@ static void ai_shutdown(struct snd_gcn *chip)
 }
 
 static int ai_init(struct snd_gcn *chip,
-		   struct resource *dsp, struct resource *ai,
+		   struct resource *dsp, struct resource *ai, struct resource *resets,
 		   unsigned int irq)
 {
 	struct snd_card *card;
 	int retval;
+	void __iomem *resets_base;
+	u32 resets_val;
+
+	/* if we have HW_RESETS mapped, pull the DSP out of reset */
+	if (resets) {
+		resets_base = ioremap(resets->start, resets->end - resets->start + 1);
+		/* not fatal, since the DSP probably isn't in reset anyways */
+		if (resets_base) {
+			resets_val = in_be32(resets_base);
+			resets_val |= BIT(22);
+			out_be32(resets_base, resets_val);
+			iounmap(resets_base);
+		}
+	}
 
 	chip->dsp_base = ioremap(dsp->start, dsp->end - dsp->start + 1);
 	chip->ai_base = ioremap(ai->start, ai->end - ai->start + 1);
@@ -487,7 +501,7 @@ static int ai_do_shutdown(struct device *dev)
 }
 
 static int ai_do_probe(struct device *dev,
-		       struct resource *dsp, struct resource *ai,
+		       struct resource *dsp, struct resource *ai, struct resource *resets,
 		       unsigned int irq)
 {
 	struct snd_card *card;
@@ -505,7 +519,7 @@ static int ai_do_probe(struct device *dev,
 	dev_set_drvdata(dev, chip);
 	chip->dev = dev;
 
-	retval = ai_init(chip, dsp, ai, irq);
+	retval = ai_init(chip, dsp, ai, resets, irq);
 	if (retval)
 		snd_card_free(card);
 
@@ -531,10 +545,25 @@ static int ai_do_remove(struct device *dev)
  *
  */
 
+/* matches for the DSP */
+static const struct of_device_id ai_dsp_match[] = {
+	{ .compatible = "nintendo,latte-dsp" },
+	{ .compatible = "nintendo,hollywood-dsp" },
+	{ .compatible = "nintendo,flipper-dsp" },
+	{ },
+};
+
+/* matches for HW_RESETS */
+static const struct of_device_id ai_resets_match[] = {
+	{ .compatible = "nintendo,hollywood-resets" },
+	{ .compatible = "nintendo,latte-resets-compat" },
+	{ },
+};
+
 static int ai_of_probe(struct platform_device *odev)
 {
-	struct resource dsp, ai;
-	struct device_node *dsp_np;
+	struct resource dsp, ai, resets;
+	struct device_node *dsp_np, *resets_np;
 	int retval;
 
 	retval = of_address_to_resource(odev->dev.of_node, 0, &ai);
@@ -543,13 +572,10 @@ static int ai_of_probe(struct platform_device *odev)
 		return -ENODEV;
 	}
 
-	dsp_np = of_find_compatible_node(NULL, NULL, "nintendo,hollywood-dsp");
+	dsp_np = of_find_matching_node(NULL, ai_dsp_match);
 	if (!dsp_np) {
-		dsp_np = of_find_compatible_node(NULL, NULL, "nintendo,flipper-dsp");
-		if (!dsp_np) {
-			drv_printk(KERN_ERR, "failed to find dsp node\n");
-			return -ENODEV;
-		}
+		drv_printk(KERN_ERR, "failed to find dsp node\n");
+		return -ENODEV;
 	}
 
 	retval = of_address_to_resource(dsp_np, 0, &dsp);
@@ -560,10 +586,27 @@ static int ai_of_probe(struct platform_device *odev)
 
 	of_node_put(dsp_np);
 
+	/*
+	 * Lacking an HW_RESETS match is non-fatal, we just won't be able to
+	 * take the DSP out of reset, so we assume that the bootloader must have
+	 * done so already.  If it hasn't, the machine will hang when trying to
+	 * initialize the DSP, since it'd be waiting on a dead device.
+	 */
+	resets_np = of_find_matching_node(NULL, ai_resets_match);
+	if (resets_np) {
+		retval = of_address_to_resource(resets_np, 0, &resets);
+		if (retval) {
+			drv_printk(KERN_ERR, "no resets io memory range found\n");
+			return -ENODEV;
+		}
+	}
+
+	of_node_put(resets_np);
+
 	of_reserved_mem_device_init(&odev->dev);
 
-	return ai_do_probe(&odev->dev,
-			   &dsp, &ai, irq_of_parse_and_map(odev->dev.of_node, 0));
+	return ai_do_probe(&odev->dev, &dsp, &ai, &resets,
+			   irq_of_parse_and_map(odev->dev.of_node, 0));
 }
 
 static void ai_of_remove(struct platform_device *odev)

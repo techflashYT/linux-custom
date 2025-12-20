@@ -8,9 +8,12 @@
 #define pr_fmt(fmt) DRV_MODULE_NAME ": " fmt
 
 #include <linux/kernel.h>
+#include <linux/of.h>
 #include <linux/of_platform.h>
+#include <linux/pm.h>
 
 #include <asm/machdep.h>
+#include <asm/time.h>
 #include <asm/udbg.h>
 
 #include "espresso-pic.h"
@@ -26,13 +29,13 @@ static void __noreturn wiiu_halt(void)
 		cpu_relax();
 }
 
-void __noreturn wiiu_power_off(void)
+static void __noreturn wiiu_power_off(void)
 {
 	latteipc_starbuck_msg(WIIU_LOADER_CMD_POWEROFF);
 	wiiu_halt();
 }
 
-void __noreturn wiiu_restart(char *cmd)
+static void __noreturn wiiu_restart(char *cmd)
 {
 	latteipc_starbuck_msg(WIIU_LOADER_CMD_REBOOT);
 	wiiu_halt();

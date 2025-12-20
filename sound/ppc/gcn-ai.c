@@ -17,6 +17,7 @@
 #include <linux/kernel.h>
 #include <linux/module.h>
 #include <linux/init.h>
+#include <linux/platform_device.h>
 #include <linux/of_platform.h>
 #include <linux/of_address.h>
 #include <linux/of_reserved_mem.h>
@@ -565,9 +566,9 @@ static int ai_of_probe(struct platform_device *odev)
 			   &dsp, &ai, irq_of_parse_and_map(odev->dev.of_node, 0));
 }
 
-static int __exit ai_of_remove(struct platform_device *odev)
+static void ai_of_remove(struct platform_device *odev)
 {
-	return ai_do_remove(&odev->dev);
+	ai_do_remove(&odev->dev);
 }
 
 static void ai_of_shutdown(struct platform_device *odev)

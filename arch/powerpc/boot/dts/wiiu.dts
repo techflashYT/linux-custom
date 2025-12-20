@@ -267,6 +267,11 @@
 			interrupt-parent = <&latte_pic>;
 		};
 
+		latte_resets_compat: resets@d800194 {
+			compatible = "nintendo,latte-resets-compat", "nintendo,hollywood-resets";
+			reg = <0x0d800194 0x4>;
+		};
+
 		latte_otp: otp@d8001ec {
 			compatible = "nintendo,latte-otp";
 			reg = <0x0d8001ec 0x8>;

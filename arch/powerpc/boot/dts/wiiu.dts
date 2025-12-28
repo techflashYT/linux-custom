@@ -21,10 +21,10 @@
 		device_type = "memory";
 		reg = <0x00000000 0x02000000>;	/* MEM1 - 32MiB */
 	};
-	memory@8000000 {
-		device_type = "memory";
-		reg = <0x08000000 0x00300000>;	/* MEM0 - 3MiB  */
-	};
+//	memory@8000000 {
+//		device_type = "memory";
+//		reg = <0x08000000 0x00300000>;	/* MEM0 - 3MiB  */
+//	};
 	memory@10000000 {
 		device_type = "memory";
 		reg = <0x10000000 0x80000000>;	/* MEM2 - 2GiB  */

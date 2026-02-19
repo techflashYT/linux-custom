@@ -33,6 +33,8 @@
 #include <drm/drm_simple_kms_helper.h>
 #include <drm/clients/drm_client_setup.h>
 
+#include "xenos.h"
+
 #define DRIVER_NAME "xenos"
 #define DRIVER_DESC "DRM framebuffer driver for Xbox 360's Xenos"
 #define DRIVER_MAJOR 1
@@ -98,16 +100,16 @@ static void xenos_enable(struct drm_simple_display_pipe *pipe,
 		drm_info(&xenos->dev, "Using %dx%d (%04lx) fb\n", width, height,
 			 xenos->real_framebuffer.size);
 		iowrite32be(xenos->real_framebuffer.dma_addr,
-			    xenos->regs + 0x6110);
+			    xenos->regs + D1GRPH_PRIMARY_SURFACE_ADDRESS);
 	}
 
-	iowrite32be(1, xenos->regs + 0x6100);
+	iowrite32be(1, xenos->regs + D1GRPH_ENABLE);
 }
 
 static void xenos_disable(struct drm_simple_display_pipe *pipe)
 {
 	struct xenos_device *xenos = xenos_of_pipe(pipe);
-	iowrite32be(0, xenos->regs + 0x6100);
+	iowrite32be(0, xenos->regs + D1GRPH_ENABLE);
 
 	dma_free_coherent(xenos->dev.dev, xenos->real_framebuffer.size,
 			  xenos->real_framebuffer.vaddr,

@@ -87,6 +87,16 @@
 		interrupt-parent = <&gic>;
 		ranges;
 
+		mmc0: mmc@e0b00000 { /* Internal eMMC */
+			compatible = "vita,sdhci";
+			#address-cells = <1>;
+			#size-cells = <0>;
+			reg = <0xe0b00000 0x200>;
+			interrupts = <GIC_SPI 220 IRQ_TYPE_LEVEL_HIGH>;
+			bus-width = <4>;
+			non-removable;
+		};
+
 		uart0: serial@e2030000 {
 			compatible = "vita,vita-uart";
 			reg = <0xe2030000 0x10000>;

@@ -279,4 +279,11 @@ config OF_PARTITION
 	  The format for the device tree node is just like MTD fixed-partition
 	  schema.
 
+config PSVITA_PARTITION
+	bool "Sony PlayStation Vita partition support" if PARTITIOM_ADVANCED
+	default y if ARCH_VITA
+	help
+	  Say Y here if you would like to be able to read the eMMC of your
+	  Sony PlayStation Vita, or a dump of it.
+
 endmenu

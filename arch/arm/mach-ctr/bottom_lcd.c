@@ -72,8 +72,7 @@ void nintendo3ds_bottom_lcd_draw_pixel(int x, int y, unsigned int color)
 	dst = bottom_lcd_fb + ((NINTENDO3DS_LCD_BOT_HEIGHT - y - 1) +
 		x * NINTENDO3DS_LCD_BOT_HEIGHT) * 3;
 	iowrite8((color >> 0 ) & 0xFF, dst + 0);
-	iowrite8((color >> 8 ) & 0xFF, dst + 1);
-	iowrite8((color >> 16) & 0xFF, dst + 2);
+	iowrite16((color >> 8 ) & 0xFFFF, dst + 1);
 }
 
 void nintendo3ds_bottom_lcd_draw_fillrect(int x, int y, int w, int h, unsigned int color)

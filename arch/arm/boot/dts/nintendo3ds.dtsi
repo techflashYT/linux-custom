@@ -64,8 +64,6 @@
 			no-output;
 		};
 
-<<<<<<< HEAD
-=======
 		nwm: sdhc-controller@10122000 {
 			compatible = "nintendo,3ds-sdhc";
 			reg = <0x10122000 0x200>;
@@ -83,7 +81,6 @@
 			cap-sdio-irq;
 		};
 
->>>>>>> Backport the new SDHC driver from new-pxi
 		gpio0: gpio-controller@10147000 {
 			compatible = "nintendo,3ds-gpio";
 			reg = <0x10147000 0x02>;
@@ -407,6 +404,13 @@
 		clock-output-names = "3ds:refclk134mhz";
 	};
 
+	irclk: xtal18mhz {
+		compatible = "fixed-clock";
+		#clock-cells = <0>;
+		clock-frequency = <18432000>;
+		clock-output-names = "3ds:xtal18mhz";
+	};
+
 	sdclk: refclk67mhz {
 		compatible = "fixed-factor-clock";
 		clocks = <&refclk>;
@@ -530,4 +534,3 @@
 		};
 	};
 };
-

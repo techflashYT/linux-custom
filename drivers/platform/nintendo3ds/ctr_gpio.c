@@ -43,7 +43,7 @@ static void ctr_gpio_irqhandler(struct irq_desc *desc)
 
 	pending = 0;
 
-	spin_lock_irqsave(&gpio->gpioc.bgpio_lock, flags);
+	raw_spin_lock_irqsave(&gpio->gpioc.bgpio_lock, flags);
 	for (i = 0; i < (gpio->ngpios / 8); i++) {
 		u8 data, edge, enabled;
 		data = ioread8(gpio->dat + i);
@@ -51,7 +51,7 @@ static void ctr_gpio_irqhandler(struct irq_desc *desc)
 		enabled = ioread8(gpio->irqenable + i);
 		pending |= (~(data ^ edge) & enabled) << (8 * i);
 	}
-	spin_unlock_irqrestore(&gpio->gpioc.bgpio_lock, flags);
+	raw_spin_unlock_irqrestore(&gpio->gpioc.bgpio_lock, flags);
 
 	chained_irq_enter(chip, desc);
 	for_each_set_bit(irq, &pending, gpio->ngpios) {
@@ -70,11 +70,11 @@ static void ctr_gpio_irq_toggle(struct ctr_gpio *gpio, unsigned irq,
 
 	offset = irq / 8;
 
-	spin_lock_irqsave(&gpio->gpioc.bgpio_lock, flags);
+	raw_spin_lock_irqsave(&gpio->gpioc.bgpio_lock, flags);
 	mask = ioread8(gpio->irqenable + offset);
 	mask = enable ? (mask | BIT(irq % 8)) : (mask & ~BIT(irq % 8));
 	iowrite8(mask, gpio->irqenable + offset);
-	spin_unlock_irqrestore(&gpio->gpioc.bgpio_lock, flags);
+	raw_spin_unlock_irqrestore(&gpio->gpioc.bgpio_lock, flags);
 }
 
 static void ctr_gpio_irq_mask(struct irq_data *data)
@@ -105,7 +105,7 @@ static int ctr_gpio_irq_set_type(struct irq_data *data, unsigned int type)
 	irq = data->hwirq;
 	offset = irq / 8;
 
-	spin_lock_irqsave(&gpio->gpioc.bgpio_lock, flags);
+	raw_spin_lock_irqsave(&gpio->gpioc.bgpio_lock, flags);
 	mask = ioread8(gpio->irqedge + offset);
 
 	if (type == IRQ_TYPE_EDGE_RISING) {
@@ -115,7 +115,7 @@ static int ctr_gpio_irq_set_type(struct irq_data *data, unsigned int type)
 	}
 
 	iowrite8(mask, gpio->irqedge + offset);
-	spin_unlock_irqrestore(&gpio->gpioc.bgpio_lock, flags);
+	raw_spin_unlock_irqrestore(&gpio->gpioc.bgpio_lock, flags);
 	return 0;
 }
 

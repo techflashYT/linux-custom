@@ -226,9 +226,18 @@ static int xenos_load(struct xenos_device *xenos)
 	struct drm_connector *connector = &xenos->connector;
 	int ret;
 
-	static const struct drm_display_mode mode = { DRM_MODE_INIT(
-		60, 1280, 720, DRM_MODE_RES_MM(1280, 96ul),
-		DRM_MODE_RES_MM(720, 96ul)) };
+	uint32_t fb_width = ioread32be(xenos->regs + D1GRPH_X_END);
+	uint32_t fb_height = ioread32be(xenos->regs + D1GRPH_Y_END);
+	uint32_t is_progressive = ioread32be(xenos-> regs + AVIVO_D1MODE_DATA_FORMAT);
+
+	if(is_progressive)
+	{
+		fb_height = fb_height / 2;
+	}
+
+	struct drm_display_mode mode = { DRM_MODE_INIT(
+		60, fb_width, fb_height, DRM_MODE_RES_MM(fb_width, 96ul),
+		DRM_MODE_RES_MM(fb_height, 96ul)) };
 	static const uint32_t formats[] = { DRM_FORMAT_XRGB8888 };
 
 	ret = drmm_mode_config_init(dev);
@@ -252,7 +261,7 @@ static int xenos_load(struct xenos_device *xenos)
 
 	drm_connector_helper_add(connector, &xenos_connector_helper_funcs);
 	drm_connector_set_panel_orientation_with_quirk(
-		connector, DRM_MODE_PANEL_ORIENTATION_UNKNOWN, 1280, 720);
+		connector, DRM_MODE_PANEL_ORIENTATION_UNKNOWN, fb_width, fb_height);
 
 	ret = drm_simple_display_pipe_init(dev, &xenos->pipe, &xenos_pipe_funcs,
 					   formats, ARRAY_SIZE(formats), NULL,

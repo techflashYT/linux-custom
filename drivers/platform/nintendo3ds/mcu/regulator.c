@@ -3,6 +3,7 @@
  * ctr/regulator.c
  *
  * Copyright (C) 2021 Santiago Herrera
+ * Copyright (C) 2026 Michael "Techflash" Garofalo
  */
 
 #define DRIVER_NAME "3dsmcu-regulator"
@@ -77,9 +78,8 @@ static int ctr_regulator_probe(struct platform_device *pdev)
 	return PTR_ERR_OR_ZERO(devm_regulator_register(dev, rdesc, &rcfg));
 }
 
-static int ctr_regulator_remove(struct platform_device *pdev)
+static void ctr_regulator_remove(struct platform_device *pdev)
 {
-	return 0;
 }
 
 static const struct of_device_id ctr_regulator_of_match[] = {

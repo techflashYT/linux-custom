@@ -45,6 +45,11 @@ enum {
 	SDHC_STAT_CARDPRESENT	= BIT(5),
 	SDHC_STAT_WRITEPROT	= BIT(7),
 
+	/* alternate card-detect signals (second socket of the TMIO core) */
+	SDHC_STAT_CARDREMOVE_A	= BIT(8),
+	SDHC_STAT_CARDINSERT_A	= BIT(9),
+	SDHC_STAT_CARDPRESENT_A	= BIT(10),
+
 	SDHC_STAT_RX_READY	= BIT(24),
 	SDHC_STAT_TX_REQUEST	= BIT(25),
 	SDHC_STAT_CMD_READY	= BIT(29),
@@ -142,6 +147,14 @@ struct ctr_sdhc {
 
 	struct mutex lock;
 
+	/*
+	 * Serialises request completion. The three DONE bits are raised from
+	 * two contexts - the threaded IRQ handler and the DMA callback (softirq)
+	 * - so the check-and-complete in ctr_sdhc_check_done must be atomic with
+	 * respect to both. The DMA callback cannot take the mutex above.
+	 */
+	spinlock_t done_lock;
+
 	struct mmc_host *mmc;
 	struct clk *sdclk;
 
@@ -149,6 +162,10 @@ struct ctr_sdhc {
 	struct mmc_request *mrq;
 
 	atomic_t stat;
+
+	/* response snapshot taken in hard-IRQ context (the response registers
+	 * are only valid briefly after the response arrives) */
+	u32 hardirq_resp[4];
 
 	u32 fifo_addr;
 	dma_cookie_t dma_cookie;

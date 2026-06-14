@@ -62,12 +62,28 @@ enum {
 
 static int ctr_sdhc_reset(struct ctr_sdhc *host)
 {
+	u32 stat;
+	u16 portsel;
+
 	/* reset controller */
 	ctr_sdhc_reg16_set(host, SDHC_SOFTRESET, 0);
 	ctr_sdhc_reg16_set(host, SDHC_SOFTRESET, 1);
 
+	/*
+	 * select the socket the card is actually wired to: the TMIO core
+	 * reports port 0 in SIGSTATE (bit 5) and port 1 on the alternate
+	 * SIGSTATE_A (bit 10). On the 3DS SD slot the card sits on port 1.
+	 */
+	stat = ctr_sdhc_reg32_get(host, SDHC_IRQ_STAT);
+	/* the card is detected on the alternate (port 1) card-detect signal
+	 * on this unit, so route commands/data there */
+	portsel = (!(stat & SDHC_STAT_CARDPRESENT) &&
+		   (stat & SDHC_STAT_CARDPRESENT_A)) ? 1 : 0;
+	dev_dbg(host->dev, "reset: IRQ_STAT=%08X selecting port %d\n",
+		stat, portsel);
+
 	/* clear registers */
-	ctr_sdhc_reg16_set(host, SDHC_CARD_PORTSEL, 0);
+	ctr_sdhc_reg16_set(host, SDHC_CARD_PORTSEL, portsel);
 	ctr_sdhc_reg16_set(host, SDHC_CARD_CLKCTL, 0);
 	ctr_sdhc_reg32_set(host, SDHC_ERROR_STATUS, 0);
 	ctr_sdhc_reg16_set(host, SDHC_STOP_INTERNAL, 0);
@@ -78,7 +94,7 @@ static int ctr_sdhc_reset(struct ctr_sdhc *host)
 	ctr_sdhc_reg16_set(host, SDHC_DATA32_BLK_CNT, 0);
 	ctr_sdhc_reg16_set(host, SDHC_DATA32_BLK_LEN, 0);
 
-	/* always use the 32bit FIFO */
+	/* always use the 32bit FIFO (DMA data path) */
 	ctr_sdhc_reg16_set(host, SDHC_DATA_CTL, SDHC_DATA_CTL_WORD_FIFO_EN);
 	ctr_sdhc_reg16_set(host, SDHC_DATA32_CTL,
 			   SDHC_DATA32_CTL_WORD_FIFO_EN |
@@ -212,34 +228,52 @@ static void ctr_sdhc_dma_unmap(struct ctr_sdhc*, struct mmc_data*);
 
 static void ctr_sdhc_check_done(struct ctr_sdhc *host, int err)
 {
-	u32 stat;
-	struct mmc_request *mrq = host->mrq;
-	if (!mrq)
-		return;
+	struct mmc_request *mrq;
+	unsigned long flags;
+	u32 stat, expected;
 
+	/*
+	 * The three DONE bits are raised from two contexts (threaded IRQ +
+	 * DMA callback), so the check-and-complete has to be serialised: done
+	 * under done_lock so a request is completed exactly once, never twice
+	 * (which corrupts the MMC core) and never zero times.
+	 */
+	spin_lock_irqsave(&host->done_lock, flags);
+
+	mrq = host->mrq;
 	stat = atomic_read(&host->stat);
-
-	if (stat & SDHC_FULL_DONE)
+	if (!mrq || (stat & SDHC_FULL_DONE)) {
+		spin_unlock_irqrestore(&host->done_lock, flags);
 		return;
-
-	u32 expected = SDHC_CMD_DONE | (mrq->data ? (SDHC_SD_DONE | SDHC_DMAC_DONE) : 0);
-
-	if (expected == stat || (err < 0)) {
-		struct mmc_command *cmd = mrq->cmd;
-		struct mmc_data *data = mrq->data;
-
-		atomic_or(SDHC_FULL_DONE, &host->stat); // mark as fully processed
-
-		if (err < 0 && cmd)
-			cmd->error = err;
-
-		if (data) {
-			ctr_sdhc_dma_unmap(host, data);
-		}
-
-		mmc_request_done(host->mmc, mrq);
-		host->mrq = NULL;
 	}
+
+	expected = SDHC_CMD_DONE |
+		(mrq->data ? (SDHC_SD_DONE | SDHC_DMAC_DONE) : 0);
+
+	/*
+	 * Complete once all expected bits are set; tolerate extra bits. An exact
+	 * match wrongly hangs if the controller raises a stray flag (e.g. it
+	 * asserts DATA_END on long R2 responses like CMD2/CMD9, setting SD_DONE
+	 * on a command with no data phase).
+	 */
+	if ((stat & expected) != expected && err >= 0) {
+		spin_unlock_irqrestore(&host->done_lock, flags);
+		return;
+	}
+
+	atomic_or(SDHC_FULL_DONE, &host->stat); // mark as fully processed
+
+	if (err < 0 && mrq->cmd)
+		mrq->cmd->error = err;
+
+	if (mrq->data)
+		ctr_sdhc_dma_unmap(host, mrq->data);
+
+	host->mrq = NULL;
+
+	spin_unlock_irqrestore(&host->done_lock, flags);
+
+	mmc_request_done(host->mmc, mrq);
 }
 
 static void ctr_sdhc_respend_irq(struct ctr_sdhc *host, u32 irqstat)
@@ -262,17 +296,18 @@ static void ctr_sdhc_respend_irq(struct ctr_sdhc *host, u32 irqstat)
 	}
 
 	if (cmd->flags & MMC_RSP_PRESENT) {
-		if (cmd->flags & MMC_RSP_136) { /* 136bit response, fill 32 */
-			u32 respbuf[4], *resp;
-			resp = cmd->resp;
+		/* use the response captured in hard-IRQ context */
+		u32 *respbuf = host->hardirq_resp;
 
-			ctr_sdhc_get_resp(host, respbuf, 4);
+		if (cmd->flags & MMC_RSP_136) { /* 136bit response, fill 32 */
+			u32 *resp = cmd->resp;
+
 			resp[0] = (respbuf[3] << 8) | (respbuf[2] >> 24);
 			resp[1] = (respbuf[2] << 8) | (respbuf[1] >> 24);
 			resp[2] = (respbuf[1] << 8) | (respbuf[0] >> 24);
 			resp[3] = respbuf[0] << 8;
 		} else { /* plain 32 bit response */
-			ctr_sdhc_get_resp(host, cmd->resp, 1);
+			cmd->resp[0] = respbuf[0];
 		}
 	}
 
@@ -284,7 +319,11 @@ static void ctr_sdhc_respend_irq(struct ctr_sdhc *host, u32 irqstat)
 
 static int ctr_sdhc_card_hotplug_irq(struct ctr_sdhc *host, u32 irqstat)
 {
-	if (!(irqstat & (SDHC_STAT_CARDREMOVE | SDHC_STAT_CARDINSERT)))
+	if (irqstat & SDHC_STAT_CARDREMOVE)
+		dev_dbg(host->dev, "card removed\n");
+	else if (irqstat & SDHC_STAT_CARDINSERT)
+		dev_dbg(host->dev, "card inserted\n");
+	else
 		return 0;
 
 	/* finish any pending requests and do a full hw reset */
@@ -301,62 +340,93 @@ static void ctr_sdhc_dataend_irq(struct ctr_sdhc *host, u32 irqstat)
 	if (irqstat & SDHC_STAT_DATA_END) {
 		// mark the SD data xfer as done
 		atomic_or(SDHC_SD_DONE, &host->stat);
-		// dev_err(host->dev, "ctr_sdhc_dataend_irq: %08X\n", irqstat);
 	}
+}
+
+/*
+ * Hard-IRQ handler: runs immediately when the controller raises the IRQ, so it
+ * captures the command response while it is still valid (the response
+ * registers appear to only hold data briefly after the response arrives - a
+ * delayed threaded read gets all zeroes). The heavy lifting stays in the
+ * thread below.
+ */
+static irqreturn_t ctr_sdhc_irq_primary(int irq, void *data)
+{
+	struct ctr_sdhc *host = data;
+
+	host->hardirq_resp[0] = ctr_sdhc_reg32_get(host, SDHC_CMD_RESPONSE);
+	host->hardirq_resp[1] = ctr_sdhc_reg32_get(host, SDHC_CMD_RESPONSE + 4);
+	host->hardirq_resp[2] = ctr_sdhc_reg32_get(host, SDHC_CMD_RESPONSE + 8);
+	host->hardirq_resp[3] = ctr_sdhc_reg32_get(host, SDHC_CMD_RESPONSE + 12);
+
+	return IRQ_WAKE_THREAD;
 }
 
 static irqreturn_t ctr_sdhc_irq_thread(int irq, void *data)
 {
-	u32 irqstat;
 	struct ctr_sdhc *host = data;
-	int error = 0, err = IRQ_HANDLED;
+	u32 irqstat;
+	int loops = 0;
 
 	mutex_lock(&host->lock);
 
-	irqstat = ctr_sdhc_irqstat_get(host);
-	dev_dbg(host->dev, "IRQ status: %x\n", irqstat);
+	/*
+	 * Drain the controller status in a loop. The IRQ line is level-style
+	 * (asserted while any status bit is set) but wired as EDGE_RISING at
+	 * the GIC, so a status bit that sets after we ack - without the line
+	 * dipping low - raises no fresh edge and its event would be lost,
+	 * hanging the request. Looping until the status reads clear catches
+	 * bits that appear while we are still processing.
+	 */
+	while ((irqstat = (ctr_sdhc_irqstat_get(host) & SDHC_IRQMASK)) != 0) {
+		int error = 0;
 
-	/* immediately acknowledge all pending IRQs */
-	ctr_sdhc_irqstat_ack(host, irqstat & SDHC_IRQMASK);
+		dev_dbg(host->dev, "IRQ status: %x\n", irqstat);
+		ctr_sdhc_irqstat_ack(host, irqstat);
 
-	/* handle any pending hotplug events */
-	if (ctr_sdhc_card_hotplug_irq(host, irqstat))
-		goto irq_end;
+		if (++loops > 64) {
+			dev_err(host->dev, "stuck IRQ (status %08X), bailing\n",
+				irqstat);
+			break;
+		}
 
-	/* skip the command/data events when there's no active request */
-	if (unlikely(host->mrq == NULL))
-		goto irq_end;
+		/* handle any pending hotplug events */
+		if (ctr_sdhc_card_hotplug_irq(host, irqstat))
+			continue;
 
-	if (irqstat & SDHC_ERR_CMD_TIMEOUT) {
-		error = -ETIMEDOUT;
-	} else if (irqstat & SDHC_ERR_CRC_FAIL) {
-		error = -EILSEQ;
-	} else if (irqstat & SDHC_ERRMASK) {
-		dev_err(host->dev, "buffer error: %08X\n",
-			irqstat & SDHC_ERRMASK);
-		/*dev_err(host->dev, "detail error status %08X\n",
-			ioread32(host->regs + SDHC_ERROR_STATUS));*/
-		error = -EIO;
+		/* nothing else to do without an active request */
+		if (host->mrq == NULL)
+			continue;
+
+		if (irqstat & SDHC_ERR_CMD_TIMEOUT) {
+			/* timeouts are expected during probing (e.g. CMD5 on a
+			 * non-SDIO card), so don't log them */
+			error = -ETIMEDOUT;
+		} else if (irqstat & SDHC_ERR_CRC_FAIL) {
+			error = -EILSEQ;
+		} else if (irqstat & SDHC_ERRMASK) {
+			dev_err(host->dev, "buffer error: %08X\n",
+				irqstat & SDHC_ERRMASK);
+			error = -EIO;
+		}
+
+		if (error) {
+			/*
+			 * Complete with the error immediately instead of leaving
+			 * the request pending until the MMC core's software
+			 * timeout fires (check_done records the error).
+			 */
+			ctr_sdhc_check_done(host, error);
+			continue;
+		}
+
+		ctr_sdhc_respend_irq(host, irqstat);
+		ctr_sdhc_dataend_irq(host, irqstat);
+		ctr_sdhc_check_done(host, 0);
 	}
 
-	if (error) {
-		/* error during transfer */
-		struct mmc_command *cmd = host->mrq->cmd;
-		if (cmd)
-			cmd->error = error;
-
-		if (error != -ETIMEDOUT)
-			goto irq_end; /* serious error */
-	}
-
-	ctr_sdhc_respend_irq(host, irqstat);
-	ctr_sdhc_dataend_irq(host, irqstat);
-
-	ctr_sdhc_check_done(host, 0);
-
-irq_end:
 	mutex_unlock(&host->lock);
-	return err;
+	return IRQ_HANDLED;
 }
 
 
@@ -380,30 +450,39 @@ static int ctr_sdhc_get_ro(struct mmc_host *mmc)
 static int ctr_sdhc_get_cd(struct mmc_host *mmc)
 {
 	struct ctr_sdhc *host = mmc_priv(mmc);
-	return !!(ctr_sdhc_irqstat_get(host) & SDHC_STAT_CARDPRESENT);
+	u32 stat = ctr_sdhc_irqstat_get(host);
+	int present = !!(stat &
+		(SDHC_STAT_CARDPRESENT | SDHC_STAT_CARDPRESENT_A));
+
+	dev_dbg(host->dev, "get_cd: IRQ_STAT=%08X present=%d\n",
+		stat, present);
+	return present;
 }
 
 static void ctr_sdhc_dma_callback(void *async_param)
 {
-	enum dma_status status;
 	struct ctr_sdhc *host = async_param;
-	struct mmc_data *data = host->mrq->data;
+	struct mmc_data *data;
+	unsigned long flags;
+
+	/*
+	 * Read the active request under done_lock - the threaded IRQ handler may
+	 * be completing and clearing host->mrq concurrently. The callback only
+	 * fires on completion, so treat the transfer as successful.
+	 */
+	spin_lock_irqsave(&host->done_lock, flags);
+	data = host->mrq ? host->mrq->data : NULL;
+	if (data) {
+		data->bytes_xfered = data->blocks * data->blksz;
+		data->error = 0;
+	}
+	spin_unlock_irqrestore(&host->done_lock, flags);
 
 	if (!data)
 		return;
 
-	if (status == DMA_COMPLETE) {
-		data->bytes_xfered = data->blocks * data->blksz;
-		data->error = 0;
-	} else {
-		data->bytes_xfered = 0;
-		data->error = -EIO;
-	}
-
-	// dev_err(host->dev, "DMA callback finished!\n");
-
 	atomic_or(SDHC_DMAC_DONE, &host->stat);
-	ctr_sdhc_check_done(host, data->error);
+	ctr_sdhc_check_done(host, 0);
 }
 
 
@@ -531,12 +610,23 @@ static int ctr_sdhc_start_request(struct ctr_sdhc *host,
 		 * STOP_TRANSMISSION command, so do it and
 		 * fake the response to make it look fine
 		 */
+		unsigned long flags;
+
 		ctr_sdhc_stop_internal_set(host, SDHC_STOP_INTERNAL_ISSUE);
 
 		cmd->resp[0] = cmd->opcode;
 		cmd->resp[1] = 0;
 		cmd->resp[2] = 0;
 		cmd->resp[3] = 0;
+
+		/*
+		 * Clear the active request before completing it - this path
+		 * fakes the response and never reaches check_done, so without
+		 * this host->mrq stays set and every later request gets -EBUSY.
+		 */
+		spin_lock_irqsave(&host->done_lock, flags);
+		host->mrq = NULL;
+		spin_unlock_irqrestore(&host->done_lock, flags);
 
 		mmc_request_done(host->mmc, mrq);
 		return 0;
@@ -598,7 +688,7 @@ static int ctr_sdhc_start_request(struct ctr_sdhc *host,
 			return err;
 	}
 
-	// dev_dbg(host->dev, "send cmdarg: %d %08X\n", cmd->opcode, cmd->arg);
+	dev_dbg(host->dev, "send cmd: %d arg %08X\n", cmd->opcode, cmd->arg);
 
 	return ctr_sdhc_send_cmdarg(host, cmd_reg, cmd->arg);
 }
@@ -677,7 +767,7 @@ static int ctr_sdhc_probe(struct platform_device *pdev)
 
 	sdclk = devm_clk_get(dev, NULL);
 	if (IS_ERR(sdclk)) {
-		pr_err("no clock provided\n");
+		dev_err(dev, "no clock provided\n");
 		return PTR_ERR(sdclk);
 	}
 
@@ -708,7 +798,7 @@ static int ctr_sdhc_probe(struct platform_device *pdev)
 
 	host->dma_chan = dma_request_chan(dev, "fifo");
 	if (IS_ERR(host->dma_chan)) {
-		dev_err(dev, "failed to get DMA channel");
+		dev_err(dev, "failed to get DMA channel\n");
 		err = PTR_ERR(host->dma_chan);
 		goto free_mmc;
 	}
@@ -739,11 +829,12 @@ static int ctr_sdhc_probe(struct platform_device *pdev)
 		goto free_dmachan;
 
 	mutex_init(&host->lock);
+	spin_lock_init(&host->done_lock);
 
 	ctr_sdhc_reset(host);
 
 	err = devm_request_threaded_irq(dev, platform_get_irq(pdev, 0),
-					NULL, ctr_sdhc_irq_thread,
+					ctr_sdhc_irq_primary, ctr_sdhc_irq_thread,
 					IRQF_ONESHOT, dev_name(dev), host);
 	if (err)
 		goto free_mmc;

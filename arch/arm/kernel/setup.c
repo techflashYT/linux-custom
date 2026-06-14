@@ -487,11 +487,21 @@ static void __init cpuid_init_hwcaps(void)
 	if (block >= 1)
 		elf_hwcap2 |= HWCAP2_SB;
 
-	/* Check for Speculative Store Bypassing control */
-	pfr2 = read_cpuid_ext(CPUID_EXT_PFR2);
-	block = cpuid_feature_extract_field(pfr2, 4);
-	if (block >= 1)
-		elf_hwcap2 |= HWCAP2_SSBS;
+	/*
+	 * FEAT_SSBS is an Armv8 feature; its ID register ID_PFR2 lives in the
+	 * CP15 c0,c3 space, which ARMv6 cores do not implement and fault on.
+	 * Some ARMv6K cores (e.g. ARM11 MPCore) are classed as ARMv7 by
+	 * cpu_architecture() via their VMSAv7 memory model, so the check above
+	 * doesn't exclude them. SSBS implies Armv8 implies LPAE, so only probe
+	 * on LPAE builds.
+	 */
+	if (IS_ENABLED(CONFIG_ARM_LPAE)) {
+		/* Check for Speculative Store Bypassing control */
+		pfr2 = read_cpuid_ext(CPUID_EXT_PFR2);
+		block = cpuid_feature_extract_field(pfr2, 4);
+		if (block >= 1)
+			elf_hwcap2 |= HWCAP2_SSBS;
+	}
 }
 
 static void __init elf_hwcap_fixup(void)

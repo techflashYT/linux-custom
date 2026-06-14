@@ -3,6 +3,7 @@
  * ctr/rtc.c
  *
  * Copyright (C) 2020-2021 Santiago Herrera
+ * Copyright (C) 2026 Michael "Techflash" Garofalo
  */
 
 #define DRIVER_NAME "3dsmcu-rtc"
@@ -91,9 +92,8 @@ static int ctr_rtc_probe(struct platform_device *pdev)
 		dev, dev_name(dev), &ctr_rtc_ops, THIS_MODULE));
 }
 
-static int ctr_rtc_remove(struct platform_device *pdev)
+static void ctr_rtc_remove(struct platform_device *pdev)
 {
-	return 0;
 }
 
 static const struct of_device_id ctr_rtc_of_match[] = {

@@ -3,6 +3,7 @@
  *  ctr_i2c.c
  *
  *  Copyright (C) 2020-2021 Santiago Herrera
+ *  Copyright (C) 2026 Michael "Techflash" Garofalo
  */
 
 #define DRIVER_NAME "3ds-i2c"
@@ -224,7 +225,7 @@ static int ctr_i2c_probe(struct platform_device *pdev)
 
 	/* setup the i2c_adapter */
 	adap->owner	= THIS_MODULE;
-	strlcpy(adap->name, dev_name(dev), sizeof(adap->name));
+	strscpy(adap->name, dev_name(dev), sizeof(adap->name));
 	adap->dev.parent	= dev;
 	adap->dev.of_node	= dev->of_node;
 	adap->algo	= &ctr_i2c_algo;
@@ -234,11 +235,10 @@ static int ctr_i2c_probe(struct platform_device *pdev)
 	return i2c_add_adapter(&i2c->adap);
 }
 
-static int ctr_i2c_remove(struct platform_device *pdev)
+static void ctr_i2c_remove(struct platform_device *pdev)
 {
 	struct ctr_i2c *i2c = platform_get_drvdata(pdev);
 	i2c_del_adapter(&i2c->adap);
-	return 0;
 }
 
 static const struct of_device_id ctr_i2c_of_match[] = {

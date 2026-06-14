@@ -24,7 +24,7 @@ struct ctr_spi {
 	u32 cs;
 	void __iomem *base;
 
-	struct spi_master *master;
+	struct spi_controller *controller;
 	wait_queue_head_t wq;
 };
 
@@ -152,18 +152,18 @@ static int ctr_spi_xfer_write(struct ctr_spi *spibus, u32 *buf, u32 len)
 
 static void ctr_spi_set_cs(struct spi_device *spi, bool enable)
 {
-	struct ctr_spi *spidrv = spi_master_get_devdata(spi->master);
-	spidrv->cs = spi->chip_select;
+	struct ctr_spi *spidrv = spi_controller_get_devdata(spi->controller);
+	spidrv->cs = spi_get_chipselect(spi, 0);
 }
 
-static int ctr_spi_transfer_one(struct spi_master *master,
+static int ctr_spi_transfer_one(struct spi_controller *controller,
 				struct spi_device *spi,
 				struct spi_transfer *xfer)
 {
 	int err;
 	bool read;
 	u32 *buf, len;
-	struct ctr_spi *spidrv = spi_master_get_devdata(master);
+	struct ctr_spi *spidrv = spi_controller_get_devdata(controller);
 
 	len = xfer->len;
 
@@ -193,9 +193,9 @@ static int ctr_spi_transfer_one(struct spi_master *master,
 	if (err)
 		return err;
 
-	if (spi_transfer_is_last(master, xfer))
+	if (spi_transfer_is_last(controller, xfer))
 		ctr_spi_done(spidrv);
-	spi_finalize_current_transfer(master);
+	spi_finalize_current_transfer(controller);
 	return 0;
 }
 
@@ -216,29 +216,29 @@ static int ctr_spi_probe(struct platform_device *pdev)
 	int err;
 	struct device *dev;
 	struct ctr_spi *spi;
-	struct spi_master *master;
+	struct spi_controller *controller;
 
 	dev = &pdev->dev;
 
-	master = devm_spi_alloc_master(dev, sizeof(*spi));
-	if (IS_ERR(master))
-		return PTR_ERR(master);
+	controller = devm_spi_alloc_master(dev, sizeof(*spi));
+	if (IS_ERR(controller))
+		return PTR_ERR(controller);
 
-	platform_set_drvdata(pdev, master);
-	spi = spi_master_get_devdata(master);
+	platform_set_drvdata(pdev, controller);
+	spi = spi_controller_get_devdata(controller);
 
 	init_waitqueue_head(&spi->wq);
 
 	/* set up the spi device structure */
-	spi->master = master;
-	master->bus_num	= pdev->id;
-	master->set_cs	= ctr_spi_set_cs;
-	master->transfer_one = ctr_spi_transfer_one;
-	master->max_transfer_size = ctr_spi_max_transfer_size;
-	master->num_chipselect = 3;
-	master->bits_per_word_mask = SPI_BPW_MASK(8);
-	master->flags = SPI_MASTER_HALF_DUPLEX;
-	master->dev.of_node = dev->of_node;
+	spi->controller = controller;
+	controller->bus_num	= pdev->id;
+	controller->set_cs	= ctr_spi_set_cs;
+	controller->transfer_one = ctr_spi_transfer_one;
+	controller->max_transfer_size = ctr_spi_max_transfer_size;
+	controller->num_chipselect = 3;
+	controller->bits_per_word_mask = SPI_BPW_MASK(8);
+	controller->flags = SPI_CONTROLLER_HALF_DUPLEX;
+	controller->dev.of_node = dev->of_node;
 
 	spi->base = devm_platform_ioremap_resource(pdev, 0);
 	if (IS_ERR(spi->base))
@@ -256,12 +256,11 @@ static int ctr_spi_probe(struct platform_device *pdev)
 	if (err)
 		return err;
 
-	return devm_spi_register_master(dev, master);
+	return devm_spi_register_controller(dev, controller);
 }
 
-static int ctr_spi_remove(struct platform_device *pdev)
+static void ctr_spi_remove(struct platform_device *pdev)
 {
-	return 0;
 }
 
 static const struct of_device_id ctr_spi_of_match[] = {

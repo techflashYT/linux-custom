@@ -3,6 +3,7 @@
  * ctr/leds.c
  *
  * Copyright (C) 2020-2021 Santiago Herrera
+ * Copyright (C) 2026 Michael "Techflash" Garofalo
  */
 
 #define DRIVER_NAME "3dsmcu-led"
@@ -100,11 +101,11 @@ static int ctr_led_probe(struct platform_device *pdev)
 	return devm_led_classdev_multicolor_register(dev, mc_led);
 }
 
-static int ctr_led_remove(struct platform_device *pdev)
+static void ctr_led_remove(struct platform_device *pdev)
 {
 	struct ctr_led *led = dev_get_drvdata(&pdev->dev);
 	struct led_classdev *cdev = &led->led.led_cdev;
-	return ctr_led_brightness_set_blocking(cdev, 0);
+	ctr_led_brightness_set_blocking(cdev, 0);
 }
 
 static const struct of_device_id ctr_led_of_match[] = {

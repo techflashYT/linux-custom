@@ -642,9 +642,8 @@ static int ctr_pxi_probe(struct platform_device *pdev)
 	return 0;
 }
 
-static int ctr_pxi_remove(struct platform_device *pdev)
+static void ctr_pxi_remove(struct platform_device *pdev)
 {
-	return -EINVAL;
 }
 
 static const struct of_device_id ctr_pxi_of_match[] = {

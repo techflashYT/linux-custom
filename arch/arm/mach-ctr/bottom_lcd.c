@@ -4,9 +4,13 @@
  *
  *  Copyright (C) 2016 Sergi Granell
  *  Copyright (C) 2017 Paul LaMendola (paulguy)
+ *  Copyright (C) 2026 Michael Garofalo (Techflash)
  */
 
 #include <linux/ioport.h>
+#include <linux/math.h>
+#include <linux/printk.h>
+#include <linux/sprintf.h>
 
 #include <mach/platform.h>
 #include <mach/bottom_lcd.h>

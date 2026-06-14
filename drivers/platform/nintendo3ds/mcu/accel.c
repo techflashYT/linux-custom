@@ -3,6 +3,7 @@
  * ctr/accel.c
  *
  * Copyright (C) 2021 Santiago Herrera
+ * Copyright (C) 2026 Michael "Techflash" Garofalo
  */
 
 #define DRIVER_NAME "3dsmcu-accel"
@@ -214,11 +215,11 @@ static int ctr_accel_probe(struct platform_device *pdev)
 	return 0;
 }
 
-static int ctr_accel_remove(struct platform_device *pdev)
+static void ctr_accel_remove(struct platform_device *pdev)
 {
 	struct iio_dev *indio_dev = dev_get_drvdata(&pdev->dev);
 	struct ctr_accel *acc = iio_priv(indio_dev);
-	return ctr_accel_set_power(acc, 0);
+	ctr_accel_set_power(acc, 0);
 }
 
 #ifdef CONFIG_PM_SLEEP

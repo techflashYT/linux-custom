@@ -3,6 +3,7 @@
  *  ctr/charger.c
  *
  *  Copyright (C) 2020-2021 Santiago Herrera
+ *  Copyright (C) 2026 Michael "Techflash" Garofalo
  */
 
 #define DRIVER_NAME "3dsmcu-charger"
@@ -179,9 +180,8 @@ static int ctr_charger_probe(struct platform_device *pdev)
 	return 0;
 }
 
-static int ctr_charger_remove(struct platform_device *pdev)
+static void ctr_charger_remove(struct platform_device *pdev)
 {
-	return 0;
 }
 
 static const struct of_device_id ctr_charger_of_match[] = {

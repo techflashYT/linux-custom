@@ -3,6 +3,7 @@
  *  ctr_pxi.c
  *
  *  Copyright (C) 2020-2021 Santiago Herrera
+ *  Copyright (C) 2026 Michael "Techflash" Garofalo
  *
  *  Based on virtio_mmio.c
  */
@@ -365,20 +366,21 @@ static struct virtqueue *vpxi_setup_vq(struct virtio_device *vdev,
 }
 
 static int vpxi_find_vqs(struct virtio_device *vdev, unsigned nvqs,
-			 struct virtqueue *vqs[], vq_callback_t *callbacks[],
-			 const char *const names[], const bool *ctx,
+			 struct virtqueue *vqs[],
+			 struct virtqueue_info vqs_info[],
 			 struct irq_affinity *desc)
 {
 	int i, queue_idx = 0;
 
 	for (i = 0; i < nvqs; ++i) {
-		if (!names[i]) {
+		struct virtqueue_info *vqi = &vqs_info[i];
+		if (!vqi->name) {
 			vqs[i] = NULL;
 			continue;
 		}
 
-		vqs[i] = vpxi_setup_vq(vdev, queue_idx++, callbacks[i],
-				       names[i], ctx ? ctx[i] : false);
+		vqs[i] = vpxi_setup_vq(vdev, queue_idx++, vqi->callback,
+				       vqi->name, vqi->ctx);
 		if (IS_ERR(vqs[i])) {
 			vpxi_del_vqs(vdev);
 			return PTR_ERR(vqs[i]);

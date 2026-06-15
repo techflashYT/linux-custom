@@ -220,7 +220,7 @@ static int ctr_spi_probe(struct platform_device *pdev)
 
 	dev = &pdev->dev;
 
-	controller = devm_spi_alloc_master(dev, sizeof(*spi));
+	controller = devm_spi_alloc_host(dev, sizeof(*spi));
 	if (IS_ERR(controller))
 		return PTR_ERR(controller);
 

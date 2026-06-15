@@ -38,7 +38,7 @@ static void __init ctr_dt_init_machine(void)
 	nintendo3ds_bottom_lcd_map_fb();
 	ctr_pdn_setup();
 
-	of_platform_populate(NULL, of_default_bus_match_table, NULL, NULL);
+	of_platform_default_populate(NULL, NULL, NULL);
 }
 
 static const char __initconst *ctr_dt_platform_compat[] = {

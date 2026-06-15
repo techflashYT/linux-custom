@@ -3,6 +3,7 @@
  *  ctr_gpio.c
  *
  *  Copyright (C) 2021 Santiago Herrera
+ *  Copyright (C) 2026 Michael "Techflash" Garofalo
  */
 
 #define DRIVER_NAME "3ds-gpio"
@@ -16,6 +17,7 @@
 #include <linux/module.h>
 #include <linux/interrupt.h>
 #include <linux/gpio/driver.h>
+#include <linux/gpio/generic.h>
 #include <linux/platform_device.h>
 #include <linux/mod_devicetable.h>
 #include <linux/irqchip/chained_irq.h>
@@ -29,7 +31,7 @@ struct ctr_gpio {
 	void __iomem *irqedge;
 	void __iomem *irqenable;
 
-	struct gpio_chip gpioc;
+	struct gpio_generic_chip chip;
 	struct irq_chip irqc;
 };
 
@@ -43,7 +45,7 @@ static void ctr_gpio_irqhandler(struct irq_desc *desc)
 
 	pending = 0;
 
-	raw_spin_lock_irqsave(&gpio->gpioc.bgpio_lock, flags);
+	raw_spin_lock_irqsave(&gpio->chip.lock, flags);
 	for (i = 0; i < (gpio->ngpios / 8); i++) {
 		u8 data, edge, enabled;
 		data = ioread8(gpio->dat + i);
@@ -51,12 +53,12 @@ static void ctr_gpio_irqhandler(struct irq_desc *desc)
 		enabled = ioread8(gpio->irqenable + i);
 		pending |= (~(data ^ edge) & enabled) << (8 * i);
 	}
-	raw_spin_unlock_irqrestore(&gpio->gpioc.bgpio_lock, flags);
+	raw_spin_unlock_irqrestore(&gpio->chip.lock, flags);
 
 	chained_irq_enter(chip, desc);
 	for_each_set_bit(irq, &pending, gpio->ngpios) {
 		generic_handle_irq(
-			irq_find_mapping(gpio->gpioc.irq.domain, irq));
+			irq_find_mapping(gpio->chip.gc.irq.domain, irq));
 	}
 	chained_irq_exit(chip, desc);
 }
@@ -70,11 +72,11 @@ static void ctr_gpio_irq_toggle(struct ctr_gpio *gpio, unsigned irq,
 
 	offset = irq / 8;
 
-	raw_spin_lock_irqsave(&gpio->gpioc.bgpio_lock, flags);
+	raw_spin_lock_irqsave(&gpio->chip.lock, flags);
 	mask = ioread8(gpio->irqenable + offset);
 	mask = enable ? (mask | BIT(irq % 8)) : (mask & ~BIT(irq % 8));
 	iowrite8(mask, gpio->irqenable + offset);
-	raw_spin_unlock_irqrestore(&gpio->gpioc.bgpio_lock, flags);
+	raw_spin_unlock_irqrestore(&gpio->chip.lock, flags);
 }
 
 static void ctr_gpio_irq_mask(struct irq_data *data)
@@ -105,7 +107,7 @@ static int ctr_gpio_irq_set_type(struct irq_data *data, unsigned int type)
 	irq = data->hwirq;
 	offset = irq / 8;
 
-	raw_spin_lock_irqsave(&gpio->gpioc.bgpio_lock, flags);
+	raw_spin_lock_irqsave(&gpio->chip.lock, flags);
 	mask = ioread8(gpio->irqedge + offset);
 
 	if (type == IRQ_TYPE_EDGE_RISING) {
@@ -115,7 +117,7 @@ static int ctr_gpio_irq_set_type(struct irq_data *data, unsigned int type)
 	}
 
 	iowrite8(mask, gpio->irqedge + offset);
-	raw_spin_unlock_irqrestore(&gpio->gpioc.bgpio_lock, flags);
+	raw_spin_unlock_irqrestore(&gpio->chip.lock, flags);
 	return 0;
 }
 
@@ -125,7 +127,8 @@ static int ctr_gpiointc_probe(struct platform_device *pdev)
 	struct device *dev;
 	int err, i, irq_count;
 	struct ctr_gpio *gpio;
-	unsigned bgpio_flags, nregs;
+	struct gpio_generic_chip_config config;
+	unsigned gpio_flags, nregs;
 
 	dev = &pdev->dev;
 
@@ -159,13 +162,20 @@ static int ctr_gpiointc_probe(struct platform_device *pdev)
 	}
 
 	if (of_property_read_bool(dev->of_node, "no-output")) {
-		bgpio_flags = BGPIOF_NO_OUTPUT;
+		gpio_flags = GPIO_GENERIC_NO_OUTPUT;
 	} else {
-		bgpio_flags = 0;
+		gpio_flags = 0;
 	}
 
-	err = bgpio_init(&gpio->gpioc, dev, nregs, gpio->dat, gpio->dat, NULL,
-			 gpio->dir, NULL, bgpio_flags);
+	config = (typeof(config)){
+		.dev = dev,
+		.sz = nregs,
+		.dat = gpio->dat,
+		.set = gpio->dat,
+		.dirout = gpio->dir
+	};
+
+	err = gpio_generic_chip_init(&gpio->chip, &config);
 	if (err)
 		return err;
 
@@ -182,7 +192,7 @@ static int ctr_gpiointc_probe(struct platform_device *pdev)
 		gpio->irqc.irq_unmask = ctr_gpio_irq_unmask;
 		gpio->irqc.irq_set_type = ctr_gpio_irq_set_type;
 
-		girq = &gpio->gpioc.irq;
+		girq = &gpio->chip.gc.irq;
 		girq->chip = &gpio->irqc;
 		girq->parent_handler = ctr_gpio_irqhandler;
 		girq->num_parents = irq_count;
@@ -198,7 +208,7 @@ static int ctr_gpiointc_probe(struct platform_device *pdev)
 		girq->handler = handle_simple_irq;
 	}
 
-	return devm_gpiochip_add_data(dev, &gpio->gpioc, gpio);
+	return devm_gpiochip_add_data(dev, &gpio->chip.gc, gpio);
 }
 
 static const struct of_device_id ctr_gpiointc_of_match[] = {

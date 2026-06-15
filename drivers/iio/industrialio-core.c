@@ -1915,6 +1915,15 @@ static void iio_sanity_check_avail_scan_masks(struct iio_dev *indio_dev)
 	longs_per_mask = BITS_TO_LONGS(masklength);
 
 	/*
+	 * masklength is only computed by the buffer code (industrialio-buffer.c),
+	 * which is built only with CONFIG_IIO_BUFFER. Without it masklength stays
+	 * 0, so there is nothing to validate here - and a longs_per_mask of 0
+	 * would make the num_masks counting loop below spin forever.
+	 */
+	if (!masklength)
+		return;
+
+	/*
 	 * The code determining how many available_scan_masks is in the array
 	 * will be assuming the end of masks when first long with all bits
 	 * zeroed is encountered. This is incorrect for masks where mask

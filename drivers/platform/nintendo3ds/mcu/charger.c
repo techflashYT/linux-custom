@@ -164,7 +164,6 @@ static int ctr_charger_probe(struct platform_device *pdev)
 	charger->map = map;
 	charger->io_addr = io_addr;
 
-	psy_cfg.of_node = dev->of_node;
 	psy_cfg.fwnode = dev_fwnode(dev);
 
 	psy_cfg.drv_data = charger;

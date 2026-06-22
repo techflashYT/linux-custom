@@ -5707,13 +5707,6 @@ int b43_ssb_probe(struct ssb_device *sdev, const struct ssb_device_id *id)
 	if (!dev)
 		return -ENOMEM;
 
-	wl = ssb_get_devtypedata(sdev);
-	if (wl) {
-		b43err(NULL, "Dual-core devices are not supported\n");
-		err = -ENOTSUPP;
-		goto err_ssb_kfree_dev;
-	}
-
 	b43_sprom_fixup(sdev->bus);
 
 	wl = b43_wireless_init(dev);

@@ -78,7 +78,17 @@
 
 			clocks = <&sdclk>;
 
-			cap-sdio-irq;
+			/*
+			 * The in-band SDIO IRQ on this controller storms when
+			 * enabled (its card-IRQ line routing isn't understood
+			 * yet), so don't advertise cap-sdio-irq. The mmc core then
+			 * polls the SDIO interrupt over CMD52 instead, which the
+			 * AR6014 works fine with.
+			 */
+
+			/* the AR6014 is soldered on with no card-detect line, so
+			 * force the SDIO bus to be scanned */
+			non-removable;
 		};
 
 		gpio0: gpio-controller@10147000 {

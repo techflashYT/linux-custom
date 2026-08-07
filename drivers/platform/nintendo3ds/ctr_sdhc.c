@@ -166,27 +166,24 @@ static int ctr_sdhc_irqmask_set(struct ctr_sdhc *host, u32 mask)
 	return 0;
 }
 
-static int ctr_sdhc_sdioirq_test(struct ctr_sdhc *host)
+/*
+ * Arm or disarm delivery of the in-band SDIO (DAT1) card interrupt. Gates it
+ * with both controls nocash uses: CARD_IRQ_CTL bit0 enables DAT1 detection and
+ * CARD_IRQ_MASK bit0 (1 = masked) gates delivery. Disarming has to actually
+ * drop the controller's output to the GIC - the line is level-triggered, so a
+ * still-asserted source would re-fire the moment genirq unmasks it - hence we
+ * turn off detection as well as masking. Caller holds sdio_lock.
+ */
+static void ctr_sdhc_sdioirq_arm(struct ctr_sdhc *host, bool armed)
 {
-	u16 state = ctr_sdhc_reg16_get(host, SDHC_CARD_IRQ_STAT);
+	u16 ctl = ctr_sdhc_reg16_get(host, SDHC_CARD_IRQ_CTL);
 
-	if (state & 1) {
-		/* acknowledge the SDIO IRQ */
-		ctr_sdhc_reg16_set(host, SDHC_CARD_IRQ_STAT, state & ~1);
-		return 1;
-	}
-	return 0;
-}
-
-static int ctr_sdhc_sdioirq_set(struct ctr_sdhc *host, int enable)
-{
-	/* always acknowledge the card interrupts first */
-	ctr_sdhc_reg16_set(host, SDHC_CARD_IRQ_STAT, 0);
-
-	/* either disable all interrupts _except_ SDIO IRQ, or disable all */
-	ctr_sdhc_reg16_set(host, SDHC_CARD_IRQ_MASK, enable ? ~1 : ~0);
-
-	return 0;
+	if (armed)
+		ctl |= 1;
+	else
+		ctl &= ~1;
+	ctr_sdhc_reg16_set(host, SDHC_CARD_IRQ_CTL, ctl);
+	ctr_sdhc_reg16_set(host, SDHC_CARD_IRQ_MASK, armed ? 0xfffe : 0xffff);
 }
 
 static void __ctr_sdhc_set_ios(struct ctr_sdhc *host, struct mmc_ios *ios)
@@ -688,28 +685,60 @@ static void ctr_sdhc_request(struct mmc_host *mmc, struct mmc_request *mrq)
 }
 
 
-/* SDIO IRQ support */
-static irqreturn_t ctr_sdhc_sdio_irq_thread(int irq, void *data)
+/*
+ * In-band SDIO IRQ support (DAT1 card interrupt, the second GIC line).
+ *
+ * The card holds DAT1 low until the SDIO function driver (ath6kl) services
+ * the interrupt, which the mmc core does asynchronously from sdio_irq_work.
+ * If we left the controller IRQ enabled across that window it would fire
+ * continuously (the storm that forced polling before), so this uses the
+ * MMC_CAP2_SDIO_IRQ_NOTHREAD model: the hard handler masks the card IRQ and
+ * signals the core, and ack_sdio_irq re-arms it once the function is serviced.
+ */
+static irqreturn_t ctr_sdhc_sdio_irq(int irq, void *data)
 {
-	irqreturn_t err = IRQ_NONE;
 	struct ctr_sdhc *host = data;
+	u16 stat;
 
-	mutex_lock(&host->lock);
-	if (ctr_sdhc_sdioirq_test(host)) {
-		mmc_signal_sdio_irq(host->mmc);
-		err = IRQ_HANDLED;
+	spin_lock(&host->sdio_lock);
+	stat = ctr_sdhc_reg16_get(host, SDHC_CARD_IRQ_STAT);
+	if (!(stat & 1)) {
+		spin_unlock(&host->sdio_lock);
+		return IRQ_NONE;
 	}
 
-	mutex_unlock(&host->lock);
-	return err;
+	/* disarm before acking, or DAT1-still-low immediately re-triggers */
+	ctr_sdhc_sdioirq_arm(host, false);
+	ctr_sdhc_reg16_set(host, SDHC_CARD_IRQ_STAT, stat & ~1);
+	spin_unlock(&host->sdio_lock);
+
+	sdio_signal_irq(host->mmc);
+	return IRQ_HANDLED;
 }
 
 static void ctr_sdhc_enable_sdio_irq(struct mmc_host *mmc, int enable)
 {
 	struct ctr_sdhc *host = mmc_priv(mmc);
-	mutex_lock(&host->lock);
-	ctr_sdhc_sdioirq_set(host, enable);
-	mutex_unlock(&host->lock);
+	unsigned long flags;
+
+	spin_lock_irqsave(&host->sdio_lock, flags);
+	ctr_sdhc_sdioirq_arm(host, enable);
+	spin_unlock_irqrestore(&host->sdio_lock, flags);
+}
+
+static void ctr_sdhc_ack_sdio_irq(struct mmc_host *mmc)
+{
+	struct ctr_sdhc *host = mmc_priv(mmc);
+	unsigned long flags;
+
+	/*
+	 * Just re-arm. The card IRQ line is level-triggered, so if the card is
+	 * still (or again) asserting DAT1 the interrupt simply re-fires once we
+	 * unmask - no need to poll the status and re-signal by hand.
+	 */
+	spin_lock_irqsave(&host->sdio_lock, flags);
+	ctr_sdhc_sdioirq_arm(host, true);
+	spin_unlock_irqrestore(&host->sdio_lock, flags);
 }
 
 static const struct mmc_host_ops ctr_sdhc_ops = {
@@ -718,6 +747,7 @@ static const struct mmc_host_ops ctr_sdhc_ops = {
 	.get_ro		= ctr_sdhc_get_ro,
 	.get_cd		= ctr_sdhc_get_cd,
 	.enable_sdio_irq = ctr_sdhc_enable_sdio_irq,
+	.ack_sdio_irq	= ctr_sdhc_ack_sdio_irq,
 };
 
 static int ctr_sdhc_probe(struct platform_device *pdev)
@@ -786,13 +816,15 @@ static int ctr_sdhc_probe(struct platform_device *pdev)
 	}
 
 	mmc->ops = &ctr_sdhc_ops;
-	/*
-	 * No MMC_CAP_SDIO_IRQ: the hardware in-band SDIO interrupt storms on
-	 * this controller, so let the mmc core poll the SDIO interrupt over
-	 * CMD52 instead (see the nwm node in the DT).
-	 */
 	mmc->caps = MMC_CAP_4_BIT_DATA | MMC_CAP_MMC_HIGHSPEED |
-		    MMC_CAP_SD_HIGHSPEED;
+		    MMC_CAP_SD_HIGHSPEED | MMC_CAP_SDIO_IRQ;
+	/*
+	 * The in-band SDIO IRQ is delivered on its own GIC line and serviced
+	 * out of line by the mmc core; use the no-thread model so the hard
+	 * handler can mask the card IRQ until ack_sdio_irq re-arms it, which
+	 * is what keeps it from storming (see ctr_sdhc_sdio_irq).
+	 */
+	mmc->caps2 = MMC_CAP2_SDIO_IRQ_NOTHREAD;
 	mmc->ocr_avail = MMC_VDD_32_33 | MMC_VDD_33_34;
 
 	mmc->max_blk_size = 0x200;
@@ -812,6 +844,7 @@ static int ctr_sdhc_probe(struct platform_device *pdev)
 
 	mutex_init(&host->lock);
 	spin_lock_init(&host->done_lock);
+	spin_lock_init(&host->sdio_lock);
 
 	ctr_sdhc_reset(host);
 
@@ -821,9 +854,12 @@ static int ctr_sdhc_probe(struct platform_device *pdev)
 	if (err)
 		goto free_mmc;
 
-	err = devm_request_threaded_irq(dev, platform_get_irq(pdev, 1),
-					NULL, ctr_sdhc_sdio_irq_thread,
-					IRQF_ONESHOT, dev_name(dev), host);
+	/*
+	 * The DAT1 card interrupt (second GIC line): a light hard handler that
+	 * masks and hands off to the mmc core (see ctr_sdhc_sdio_irq).
+	 */
+	err = devm_request_irq(dev, platform_get_irq(pdev, 1),
+			       ctr_sdhc_sdio_irq, 0, dev_name(dev), host);
 	if (err)
 		goto free_mmc;
 

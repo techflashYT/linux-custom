@@ -155,6 +155,13 @@ struct ctr_sdhc {
 	 */
 	spinlock_t done_lock;
 
+	/*
+	 * Serialises access to the CARD_IRQ_CTL/STAT/MASK registers, which are
+	 * touched from the in-band SDIO IRQ hard handler as well as the
+	 * enable/ack_sdio_irq callbacks (process context).
+	 */
+	spinlock_t sdio_lock;
+
 	struct mmc_host *mmc;
 	struct clk *sdclk;
 

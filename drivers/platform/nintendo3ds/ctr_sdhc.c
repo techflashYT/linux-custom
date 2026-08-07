@@ -54,6 +54,9 @@ enum {
 // freeze the CLK pin when inactive if running above 10MHz
 #define SDHC_CLKFREEZE_THRESHOLD	(10000000)
 
+// size of the uncached DMA bounce buffer; caps the largest transfer
+#define CTR_SDHC_BOUNCE_SIZE	(128 * 1024)
+
 #define ctr_sdhc_reg16_set(h, o, v)	iowrite16((v), (h)->regs + (o))
 #define ctr_sdhc_reg32_set(h, o, v)	iowrite32((v), (h)->regs + (o))
 
@@ -195,6 +198,7 @@ static void __ctr_sdhc_set_ios(struct ctr_sdhc *host, struct mmc_ios *ios)
 
 		// get the divider that best achieves the desired clkrate
 		clk_ctl = (clkdiv <= 1) ? 0 : (roundup_pow_of_two(clkdiv) / 4);
+
 		clk_ctl |= SDHC_CARD_CLKCTL_PIN_ENABLE;
 
 		if (ios->clock >= SDHC_CLKFREEZE_THRESHOLD)
@@ -223,8 +227,6 @@ static void __ctr_sdhc_set_ios(struct ctr_sdhc *host, struct mmc_ios *ios)
 	ctr_sdhc_set_clk_opt(host, clk_ctl, card_opt);
 	mdelay(10);
 }
-
-static void ctr_sdhc_dma_unmap(struct ctr_sdhc*, struct mmc_data*);
 
 static void ctr_sdhc_check_done(struct ctr_sdhc *host, int err)
 {
@@ -266,12 +268,26 @@ static void ctr_sdhc_check_done(struct ctr_sdhc *host, int err)
 	if (err < 0 && mrq->cmd)
 		mrq->cmd->error = err;
 
-	if (mrq->data)
-		ctr_sdhc_dma_unmap(host, mrq->data);
-
 	host->mrq = NULL;
 
 	spin_unlock_irqrestore(&host->done_lock, flags);
+
+	/*
+	 * Done outside done_lock and safe because we own the request
+	 * (SDHC_FULL_DONE claimed above): on error a pending DMA may still be
+	 * outstanding, tear it down; on a successful read, copy the freshly
+	 * DMA'd data out of the uncached bounce into the request.
+	 */
+	if (mrq->data) {
+		struct mmc_data *data = mrq->data;
+
+		if (err < 0)
+			dmaengine_terminate_async(host->dma_chan);
+		else if (data->flags & MMC_DATA_READ)
+			sg_copy_from_buffer(data->sg, data->sg_len,
+					    host->bounce,
+					    (size_t)data->blksz * data->blocks);
+	}
 
 	mmc_request_done(host->mmc, mrq);
 }
@@ -487,38 +503,29 @@ static void ctr_sdhc_dma_callback(void *async_param)
 
 
 /** Data and command request issuing */
-static int ctr_sdhc_dma_map(struct ctr_sdhc *host, struct mmc_data *data)
-{
-	int res;
-	struct dma_chan *dma = host->dma_chan;
-
-	if (data->host_cookie == DMABUF_MAPPED)
-		return 0;
-
-	res = dma_map_sg(dma->device->dev, data->sg,
-		data->sg_len, mmc_get_dma_dir(data) <= 0);
-
-	if (res <= 0) {
-		data->host_cookie = DMABUF_UNMAPPED;
-		dev_err(host->dev, "failed to dma_map_sg\n");
-		return -ENOMEM;
-	}
-
-	data->sg_count = res;
-	data->host_cookie = DMABUF_MAPPED;
-	return 0;
-}
-
 static int ctr_sdhc_start_data(struct ctr_sdhc *host, struct mmc_data *data)
 {
-	int err;
 	struct dma_slave_config dmacfg = {};
 	struct dma_chan *dma = host->dma_chan;
+	size_t len = (size_t)data->blksz * data->blocks;
 
-	err = ctr_sdhc_dma_map(host, data);
-	if (err < 0) {
-		dev_err(host->dev, "failed to map sg %d\n", err);
+	/*
+	 * Stage every transfer through the uncached bounce buffer (see struct
+	 * ctr_sdhc): on this non-snooping ARM11 MPCore, DMAing straight into the
+	 * request pages leaves stale/garbage data in whichever core later reads
+	 * it, because cache-invalidate maintenance is not broadcast across cores.
+	 */
+	if (len > host->bounce_size) {
+		dev_err(host->dev, "transfer of %zu B exceeds bounce buffer\n",
+			len);
 		return -EINVAL;
+	}
+
+	if (data->flags & MMC_DATA_WRITE) {
+		sg_copy_to_buffer(data->sg, data->sg_len, host->bounce, len);
+		dmacfg.direction = DMA_MEM_TO_DEV;
+	} else {
+		dmacfg.direction = DMA_DEV_TO_MEM;
 	}
 
 	dmacfg.src_addr_width = DMA_SLAVE_BUSWIDTH_4_BYTES;
@@ -527,17 +534,11 @@ static int ctr_sdhc_start_data(struct ctr_sdhc *host, struct mmc_data *data)
 	dmacfg.dst_maxburst = 256 / 4;
 	dmacfg.src_addr = host->fifo_addr;
 	dmacfg.dst_addr = host->fifo_addr;
-
-	if (data->flags & MMC_DATA_WRITE) {
-		dmacfg.direction = DMA_MEM_TO_DEV;
-	} else {
-		dmacfg.direction = DMA_DEV_TO_MEM;
-	}
-
 	dmaengine_slave_config(dma, &dmacfg);
 
-	host->txdesc = dmaengine_prep_slave_sg(dma, data->sg, data->sg_count,
-		dmacfg.direction, DMA_PREP_INTERRUPT);
+	host->txdesc = dmaengine_prep_slave_single(dma, host->bounce_dma, len,
+						   dmacfg.direction,
+						   DMA_PREP_INTERRUPT);
 	if (!host->txdesc) {
 		dev_err(host->dev,
 			"failed to create DMA transfer descriptor\n");
@@ -552,43 +553,6 @@ static int ctr_sdhc_start_data(struct ctr_sdhc *host, struct mmc_data *data)
 	host->dma_cookie = dmaengine_submit(host->txdesc);
 	dma_async_issue_pending(dma);
 	return 0;
-}
-
-static void ctr_sdhc_pre_request(struct mmc_host *mmc,
-				struct mmc_request *mrq)
-{
-	struct ctr_sdhc *host = mmc_priv(mmc);
-	struct mmc_data *data = mrq->data;
-
-	if (data) {
-		ctr_sdhc_dma_map(host, data);
-	}
-}
-
-static void ctr_sdhc_dma_unmap(struct ctr_sdhc *host, struct mmc_data *data)
-{
-	if (data->host_cookie == DMABUF_UNMAPPED)
-		return;
-
-	dma_unmap_sg(host->dma_chan->device->dev, data->sg,
-		data->sg_len, mmc_get_dma_dir(data));
-	data->host_cookie = DMABUF_UNMAPPED;
-}
-
-static void ctr_sdhc_post_request(struct mmc_host *mmc,
-				struct mmc_request *mrq, int err)
-{
-	struct mmc_data *data = mrq->data;
-	struct ctr_sdhc *host = mmc_priv(mmc);
-	struct dma_chan *dma = host->dma_chan;
-
-	if (err) { // clean up the leftovers if needed
-		dmaengine_terminate_all(dma);
-	}
-
-	if (data) {
-		ctr_sdhc_dma_unmap(host, data);
-	}
 }
 
 static int ctr_sdhc_start_request(struct ctr_sdhc *host,
@@ -699,17 +663,21 @@ static void ctr_sdhc_request(struct mmc_host *mmc, struct mmc_request *mrq)
 	struct ctr_sdhc *host = mmc_priv(mmc);
 
 	mutex_lock(&host->lock);
-	if (ctr_sdhc_get_cd(mmc) <= 0) {
+	/*
+	 * A soldered, non-removable SDIO card (the AR6014 WiFi) may never assert
+	 * the controller's card-present bit, so only gate on card-detect for
+	 * genuinely removable hosts - otherwise every command is rejected with
+	 * -ENOMEDIUM and the card never enumerates.
+	 */
+	if (!(mmc->caps & MMC_CAP_NONREMOVABLE) && ctr_sdhc_get_cd(mmc) <= 0) {
 		/* card not present, immediately return an error */
 		cmd->error = -ENOMEDIUM;
+	} else if (host->mrq != NULL) {
+		/* already another request in progrsss */
+		cmd->error = -EBUSY;
 	} else {
-		if (host->mrq != NULL) {
-			/* already another request in progrsss */
-			cmd->error = -EBUSY;
-		} else {
-			host->mrq = mrq;
-			cmd->error = ctr_sdhc_start_request(host, mrq);
-		}
+		host->mrq = mrq;
+		cmd->error = ctr_sdhc_start_request(host, mrq);
 	}
 
 	if (cmd->error) {
@@ -746,8 +714,6 @@ static void ctr_sdhc_enable_sdio_irq(struct mmc_host *mmc, int enable)
 
 static const struct mmc_host_ops ctr_sdhc_ops = {
 	.request	= ctr_sdhc_request,
-	.pre_req	= ctr_sdhc_pre_request,
-	.post_req	= ctr_sdhc_post_request,
 	.set_ios	= ctr_sdhc_set_ios,
 	.get_ro		= ctr_sdhc_get_ro,
 	.get_cd		= ctr_sdhc_get_cd,
@@ -809,20 +775,36 @@ static int ctr_sdhc_probe(struct platform_device *pdev)
 		goto free_dmachan;
 	}
 
+	/* uncached DMA staging buffer (see struct ctr_sdhc / ctr_sdhc_start_data) */
+	host->bounce_size = CTR_SDHC_BOUNCE_SIZE;
+	host->bounce = dmam_alloc_coherent(dev, host->bounce_size,
+					   &host->bounce_dma, GFP_KERNEL);
+	if (!host->bounce) {
+		dev_err(dev, "failed to allocate DMA bounce buffer\n");
+		err = -ENOMEM;
+		goto free_dmachan;
+	}
+
 	mmc->ops = &ctr_sdhc_ops;
+	/*
+	 * No MMC_CAP_SDIO_IRQ: the hardware in-band SDIO interrupt storms on
+	 * this controller, so let the mmc core poll the SDIO interrupt over
+	 * CMD52 instead (see the nwm node in the DT).
+	 */
 	mmc->caps = MMC_CAP_4_BIT_DATA | MMC_CAP_MMC_HIGHSPEED |
-		    MMC_CAP_SD_HIGHSPEED | MMC_CAP_SDIO_IRQ;
+		    MMC_CAP_SD_HIGHSPEED;
 	mmc->ocr_avail = MMC_VDD_32_33 | MMC_VDD_33_34;
 
 	mmc->max_blk_size = 0x200;
-	mmc->max_blk_count = 0xFFFF;
+	/* every transfer is staged through the fixed-size bounce buffer */
+	mmc->max_blk_count = CTR_SDHC_BOUNCE_SIZE / mmc->max_blk_size;
 
 	mmc->f_max = clkrate / 2;
 	mmc->f_min = clkrate / 512;
 
 	mmc->max_segs = 1;
-	mmc->max_seg_size = mmc->max_blk_size * mmc->max_blk_count;
-	mmc->max_req_size = mmc->max_blk_size * mmc->max_blk_count;
+	mmc->max_seg_size = CTR_SDHC_BOUNCE_SIZE;
+	mmc->max_req_size = CTR_SDHC_BOUNCE_SIZE;
 
 	err = mmc_of_parse(mmc);
 	if (err < 0)

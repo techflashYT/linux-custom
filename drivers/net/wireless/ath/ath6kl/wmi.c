@@ -236,11 +236,17 @@ int ath6kl_wmi_data_hdr_add(struct wmi *wmi, struct sk_buff *skb,
 			    enum wmi_data_hdr_data_type data_type,
 			    u8 meta_ver, void *tx_meta_info, u8 if_idx)
 {
+	struct wmi_data_hdr_ar6014 *legacy_hdr;
 	struct wmi_data_hdr *data_hdr;
+	bool ar6014;
 	int ret;
 
 	if (WARN_ON(skb == NULL || (if_idx > wmi->parent_dev->vif_max - 1)))
 		return -EINVAL;
+
+	ar6014 = wmi->parent_dev->target_type == TARGET_TYPE_AR6014;
+	if (ar6014 && tx_meta_info)
+		return -EOPNOTSUPP;
 
 	if (tx_meta_info) {
 		ret = ath6kl_wmi_meta_add(wmi, skb, &meta_ver, tx_meta_info);
@@ -248,10 +254,23 @@ int ath6kl_wmi_data_hdr_add(struct wmi *wmi, struct sk_buff *skb,
 			return ret;
 	}
 
-	skb_push(skb, sizeof(struct wmi_data_hdr));
+	if (ar6014) {
+		skb_push(skb, sizeof(*legacy_hdr));
+		legacy_hdr = (struct wmi_data_hdr_ar6014 *)skb->data;
+		memset(legacy_hdr, 0, sizeof(*legacy_hdr));
+
+		legacy_hdr->info = msg_type << WMI_DATA_HDR_MSG_TYPE_SHIFT;
+		legacy_hdr->info |= data_type << WMI_DATA_HDR_DATA_TYPE_SHIFT;
+		if (flags & WMI_DATA_HDR_FLAGS_MORE)
+			legacy_hdr->info |= WMI_DATA_HDR_MORE;
+
+		return 0;
+	}
+
+	skb_push(skb, sizeof(*data_hdr));
 
 	data_hdr = (struct wmi_data_hdr *)skb->data;
-	memset(data_hdr, 0, sizeof(struct wmi_data_hdr));
+	memset(data_hdr, 0, sizeof(*data_hdr));
 
 	data_hdr->info = msg_type << WMI_DATA_HDR_MSG_TYPE_SHIFT;
 	data_hdr->info |= data_type << WMI_DATA_HDR_DATA_TYPE_SHIFT;
@@ -752,16 +771,35 @@ static int ath6kl_wmi_simple_cmd(struct wmi *wmi, u8 if_idx,
 
 static int ath6kl_wmi_ready_event_rx(struct wmi *wmi, u8 *datap, int len)
 {
+	struct ath6kl *ar = wmi->parent_dev;
 	struct wmi_ready_event_2 *ev = (struct wmi_ready_event_2 *) datap;
 
-	if (len < sizeof(struct wmi_ready_event_2))
-		return -EINVAL;
+	/*
+	 * AR6014 events use a 12-byte base layout and may carry four trailing
+	 * bytes. A 16-byte variant would also look long enough for the newer
+	 * 15-byte event, so select the layout from the target type first.
+	 */
+	if (ar->target_type == TARGET_TYPE_AR6014) {
+		struct wmi_ready_event_ar6014 *ev14 =
+			(struct wmi_ready_event_ar6014 *)datap;
 
-	ath6kl_ready_event(wmi->parent_dev, ev->mac_addr,
-			   le32_to_cpu(ev->sw_version),
-			   le32_to_cpu(ev->abi_version), ev->phy_cap);
+		if (len < sizeof(*ev14))
+			return -EINVAL;
 
-	return 0;
+		ath6kl_ready_event(ar, ev14->mac_addr,
+				   le32_to_cpu(ev14->sw_version),
+				   ATH6KL_ABI_VERSION, ev14->phy_cap);
+		return 0;
+	}
+
+	if (len >= sizeof(struct wmi_ready_event_2)) {
+		ath6kl_ready_event(ar, ev->mac_addr,
+				   le32_to_cpu(ev->sw_version),
+				   le32_to_cpu(ev->abi_version), ev->phy_cap);
+		return 0;
+	}
+
+	return -EINVAL;
 }
 
 /*
@@ -1106,46 +1144,70 @@ void ath6kl_wmi_sscan_timer(struct timer_list *t)
 static int ath6kl_wmi_bssinfo_event_rx(struct wmi *wmi, u8 *datap, int len,
 				       struct ath6kl_vif *vif)
 {
-	struct wmi_bss_info_hdr2 *bih;
 	u8 *buf;
+	u8 *bssid;
+	u8 frame_type;
+	u8 snr;
+	u16 ch;
+	int hdr_len;
 	struct ieee80211_channel *channel;
 	struct ath6kl *ar = wmi->parent_dev;
 	struct cfg80211_bss *bss;
 
-	if (len <= sizeof(struct wmi_bss_info_hdr2))
-		return -EINVAL;
+	if (ar->target_type == TARGET_TYPE_AR6014) {
+		struct wmi_bss_info_hdr_ar6014 *bih =
+			(struct wmi_bss_info_hdr_ar6014 *)datap;
 
-	bih = (struct wmi_bss_info_hdr2 *) datap;
-	buf = datap + sizeof(struct wmi_bss_info_hdr2);
-	len -= sizeof(struct wmi_bss_info_hdr2);
+		hdr_len = sizeof(*bih);
+		if (len <= hdr_len)
+			return -EINVAL;
+
+		ch = le16_to_cpu(bih->ch);
+		frame_type = bih->frame_type;
+		snr = bih->snr;
+		bssid = bih->bssid;
+	} else {
+		struct wmi_bss_info_hdr2 *bih =
+			(struct wmi_bss_info_hdr2 *)datap;
+
+		hdr_len = sizeof(*bih);
+		if (len <= hdr_len)
+			return -EINVAL;
+
+		ch = le16_to_cpu(bih->ch);
+		frame_type = bih->frame_type;
+		snr = bih->snr;
+		bssid = bih->bssid;
+	}
+
+	buf = datap + hdr_len;
+	len -= hdr_len;
 
 	ath6kl_dbg(ATH6KL_DBG_WMI,
 		   "bss info evt - ch %u, snr %d, rssi %d, bssid \"%pM\" "
 		   "frame_type=%d\n",
-		   bih->ch, bih->snr, bih->snr - 95, bih->bssid,
-		   bih->frame_type);
+		   ch, snr, snr - 95, bssid, frame_type);
 
-	if (bih->frame_type != BEACON_FTYPE &&
-	    bih->frame_type != PROBERESP_FTYPE)
+	if (frame_type != BEACON_FTYPE && frame_type != PROBERESP_FTYPE)
 		return 0; /* Only update BSS table for now */
 
-	if (bih->frame_type == BEACON_FTYPE &&
+	if (frame_type == BEACON_FTYPE &&
 	    test_bit(CLEAR_BSSFILTER_ON_BEACON, &vif->flags)) {
 		clear_bit(CLEAR_BSSFILTER_ON_BEACON, &vif->flags);
 		ath6kl_wmi_bssfilter_cmd(ar->wmi, vif->fw_vif_idx,
 					 NONE_BSS_FILTER, 0);
 	}
 
-	channel = ieee80211_get_channel(ar->wiphy, le16_to_cpu(bih->ch));
+	channel = ieee80211_get_channel(ar->wiphy, ch);
 	if (channel == NULL)
 		return -EINVAL;
 
 	if (len < 8 + 2 + 2)
 		return -EINVAL;
 
-	if (bih->frame_type == BEACON_FTYPE &&
+	if (frame_type == BEACON_FTYPE &&
 	    test_bit(CONNECTED, &vif->flags) &&
-	    memcmp(bih->bssid, vif->bssid, ETH_ALEN) == 0) {
+	    memcmp(bssid, vif->bssid, ETH_ALEN) == 0) {
 		const u8 *tim;
 		tim = cfg80211_find_ie(WLAN_EID_TIM, buf + 8 + 2 + 2,
 				       len - 8 - 2 - 2);
@@ -1156,14 +1218,14 @@ static int ath6kl_wmi_bssinfo_event_rx(struct wmi *wmi, u8 *datap, int len,
 	}
 
 	bss = cfg80211_inform_bss(ar->wiphy, channel,
-				  bih->frame_type == BEACON_FTYPE ?
+				  frame_type == BEACON_FTYPE ?
 					CFG80211_BSS_FTYPE_BEACON :
 					CFG80211_BSS_FTYPE_PRESP,
-				  bih->bssid, get_unaligned_le64((__le64 *)buf),
+				  bssid, get_unaligned_le64((__le64 *)buf),
 				  get_unaligned_le16(((__le16 *)buf) + 5),
 				  get_unaligned_le16(((__le16 *)buf) + 4),
 				  buf + 8 + 2 + 2, len - 8 - 2 - 2,
-				  (bih->snr - 95) * 100, GFP_ATOMIC);
+				  (snr - 95) * 100, GFP_ATOMIC);
 	if (bss == NULL)
 		return -ENOMEM;
 	cfg80211_put_bss(ar->wiphy, bss);
@@ -1799,10 +1861,9 @@ static int ath6kl_wmi_aplist_event_rx(struct wmi *wmi, u8 *datap, int len)
 int ath6kl_wmi_cmd_send(struct wmi *wmi, u8 if_idx, struct sk_buff *skb,
 			enum wmi_cmd_id cmd_id, enum wmi_sync_flag sync_flag)
 {
-	struct wmi_cmd_hdr *cmd_hdr;
+	struct ath6kl *ar = wmi->parent_dev;
 	enum htc_endpoint_id ep_id = wmi->ep_id;
 	int ret;
-	u16 info1;
 
 	if (WARN_ON(skb == NULL ||
 		    (if_idx > (wmi->parent_dev->vif_max - 1)))) {
@@ -1829,12 +1890,23 @@ int ath6kl_wmi_cmd_send(struct wmi *wmi, u8 if_idx, struct sk_buff *skb,
 		ath6kl_wmi_sync_point(wmi, if_idx);
 	}
 
-	skb_push(skb, sizeof(struct wmi_cmd_hdr));
+	if (ar->target_type == TARGET_TYPE_AR6014) {
+		struct wmi_cmd_hdr_ar6014 *cmd_hdr_ar6014;
 
-	cmd_hdr = (struct wmi_cmd_hdr *) skb->data;
-	cmd_hdr->cmd_id = cpu_to_le16(cmd_id);
-	info1 = if_idx & WMI_CMD_HDR_IF_ID_MASK;
-	cmd_hdr->info1 = cpu_to_le16(info1);
+		skb_push(skb, sizeof(*cmd_hdr_ar6014));
+		cmd_hdr_ar6014 = (struct wmi_cmd_hdr_ar6014 *)skb->data;
+		cmd_hdr_ar6014->cmd_id = cpu_to_le16(cmd_id);
+	} else {
+		struct wmi_cmd_hdr *cmd_hdr;
+		u16 info1;
+
+		skb_push(skb, sizeof(struct wmi_cmd_hdr));
+
+		cmd_hdr = (struct wmi_cmd_hdr *)skb->data;
+		cmd_hdr->cmd_id = cpu_to_le16(cmd_id);
+		info1 = if_idx & WMI_CMD_HDR_IF_ID_MASK;
+		cmd_hdr->info1 = cpu_to_le16(info1);
+	}
 
 	/* Only for OPT_TX_CMD, use BE endpoint. */
 	if (cmd_id == WMI_OPT_TX_FRAME_CMDID) {
@@ -1861,6 +1933,53 @@ int ath6kl_wmi_cmd_send(struct wmi *wmi, u8 if_idx, struct sk_buff *skb,
 	return 0;
 }
 
+static int ar6014_auth_mode(enum auth_mode mode, u8 *legacy)
+{
+	switch (mode) {
+	case NONE_AUTH:
+		*legacy = 1;
+		break;
+	case WPA_AUTH:
+		*legacy = 2;
+		break;
+	case WPA_PSK_AUTH:
+		*legacy = 3;
+		break;
+	case WPA2_AUTH:
+		*legacy = 4;
+		break;
+	case WPA2_PSK_AUTH:
+		*legacy = 5;
+		break;
+	default:
+		return -EOPNOTSUPP;
+	}
+
+	return 0;
+}
+
+static int ar6014_crypto_type(enum ath6kl_crypto_type type, u8 *legacy)
+{
+	switch (type) {
+	case NONE_CRYPT:
+		*legacy = 1;
+		break;
+	case WEP_CRYPT:
+		*legacy = 2;
+		break;
+	case TKIP_CRYPT:
+		*legacy = 3;
+		break;
+	case AES_CRYPT:
+		*legacy = 4;
+		break;
+	default:
+		return -EOPNOTSUPP;
+	}
+
+	return 0;
+}
+
 int ath6kl_wmi_connect_cmd(struct wmi *wmi, u8 if_idx,
 			   enum network_type nw_type,
 			   enum dot11_auth_mode dot11_auth_mode,
@@ -1872,8 +1991,10 @@ int ath6kl_wmi_connect_cmd(struct wmi *wmi, u8 if_idx,
 			   u8 *bssid, u16 channel, u32 ctrl_flags,
 			   u8 nw_subtype)
 {
+	struct wmi_connect_cmd_ar6014 *legacy;
 	struct sk_buff *skb;
-	struct wmi_connect_cmd *cc;
+	bool ar6014;
+	size_t len;
 	int ret;
 
 	ath6kl_dbg(ATH6KL_DBG_WMI,
@@ -1891,29 +2012,55 @@ int ath6kl_wmi_connect_cmd(struct wmi *wmi, u8 if_idx,
 	if ((pairwise_crypto != NONE_CRYPT) && (group_crypto == NONE_CRYPT))
 		return -EINVAL;
 
-	skb = ath6kl_wmi_get_new_buf(sizeof(struct wmi_connect_cmd));
+	ar6014 = wmi->parent_dev->target_type == TARGET_TYPE_AR6014;
+	len = ar6014 ? sizeof(*legacy) : sizeof(struct wmi_connect_cmd);
+	skb = ath6kl_wmi_get_new_buf(len);
 	if (!skb)
 		return -ENOMEM;
 
-	cc = (struct wmi_connect_cmd *) skb->data;
+	legacy = (struct wmi_connect_cmd_ar6014 *)skb->data;
 
 	if (ssid_len)
-		memcpy(cc->ssid, ssid, ssid_len);
+		memcpy(legacy->ssid, ssid, ssid_len);
 
-	cc->ssid_len = ssid_len;
-	cc->nw_type = nw_type;
-	cc->dot11_auth_mode = dot11_auth_mode;
-	cc->auth_mode = auth_mode;
-	cc->prwise_crypto_type = pairwise_crypto;
-	cc->prwise_crypto_len = pairwise_crypto_len;
-	cc->grp_crypto_type = group_crypto;
-	cc->grp_crypto_len = group_crypto_len;
-	cc->ch = cpu_to_le16(channel);
-	cc->ctrl_flags = cpu_to_le32(ctrl_flags);
-	cc->nw_subtype = nw_subtype;
+	legacy->ssid_len = ssid_len;
+	legacy->nw_type = nw_type;
+	legacy->dot11_auth_mode = dot11_auth_mode;
+	legacy->prwise_crypto_len = pairwise_crypto_len;
+	legacy->grp_crypto_len = group_crypto_len;
+	legacy->ch = cpu_to_le16(channel);
+	legacy->ctrl_flags = cpu_to_le32(ctrl_flags);
+
+	if (ar6014) {
+		u8 crypto;
+
+		ret = ar6014_auth_mode(auth_mode, &legacy->auth_mode);
+		if (!ret) {
+			ret = ar6014_crypto_type(pairwise_crypto, &crypto);
+			if (!ret)
+				legacy->prwise_crypto_type = crypto;
+		}
+		if (!ret) {
+			ret = ar6014_crypto_type(group_crypto, &crypto);
+			if (!ret)
+				legacy->grp_crypto_type = crypto;
+		}
+		if (ret) {
+			dev_kfree_skb(skb);
+			return ret;
+		}
+	} else {
+		struct wmi_connect_cmd *cc;
+
+		cc = (struct wmi_connect_cmd *)skb->data;
+		cc->auth_mode = auth_mode;
+		cc->prwise_crypto_type = pairwise_crypto;
+		cc->grp_crypto_type = group_crypto;
+		cc->nw_subtype = nw_subtype;
+	}
 
 	if (bssid != NULL)
-		memcpy(cc->bssid, bssid, ETH_ALEN);
+		memcpy(legacy->bssid, bssid, ETH_ALEN);
 
 	ret = ath6kl_wmi_cmd_send(wmi, if_idx, skb, WMI_CONNECT_CMDID,
 				  NO_SYNC_WMIFLAG);
@@ -1976,6 +2123,8 @@ static int ath6kl_wmi_startscan_cmd(struct wmi *wmi, u8 if_idx,
 {
 	struct sk_buff *skb;
 	struct wmi_start_scan_cmd *sc;
+	size_t size;
+	int alloc_num_chan = num_chan;
 	int i, ret;
 
 	if ((scan_type != WMI_LONG_SCAN) && (scan_type != WMI_SHORT_SCAN))
@@ -1984,7 +2133,12 @@ static int ath6kl_wmi_startscan_cmd(struct wmi *wmi, u8 if_idx,
 	if (num_chan > WMI_MAX_CHANNELS)
 		return -EINVAL;
 
-	skb = ath6kl_wmi_get_new_buf(struct_size(sc, ch_list, num_chan));
+	/* AR6014's legacy structure includes channel_list[1] even when empty. */
+	if (!num_chan && wmi->parent_dev->target_type == TARGET_TYPE_AR6014)
+		alloc_num_chan = 1;
+
+	size = struct_size(sc, ch_list, alloc_num_chan);
+	skb = ath6kl_wmi_get_new_buf(size);
 	if (!skb)
 		return -ENOMEM;
 
@@ -2103,6 +2257,36 @@ int ath6kl_wmi_enable_sched_scan_cmd(struct wmi *wmi, u8 if_idx, bool enable)
 				  WMI_ENABLE_SCHED_SCAN_CMDID,
 				  NO_SYNC_WMIFLAG);
 	return ret;
+}
+
+int ath6kl_wmi_channelparams_cmd(struct wmi *wmi, u8 if_idx, u8 scan_param,
+				 enum wmi_phy_mode phy_mode, u8 num_channels,
+				 const u16 *channel_list)
+{
+	struct wmi_channel_params_cmd *cmd;
+	struct sk_buff *skb;
+	size_t size;
+	int i;
+
+	if (!num_channels || num_channels > WMI_MAX_CHANNELS || !channel_list)
+		return -EINVAL;
+
+	size = struct_size(cmd, channel_list, num_channels);
+	skb = ath6kl_wmi_get_new_buf(size);
+	if (!skb)
+		return -ENOMEM;
+
+	cmd = (struct wmi_channel_params_cmd *)skb->data;
+	cmd->scan_param = scan_param;
+	cmd->phy_mode = phy_mode;
+	cmd->num_channels = num_channels;
+
+	for (i = 0; i < num_channels; i++)
+		cmd->channel_list[i] = cpu_to_le16(channel_list[i]);
+
+	return ath6kl_wmi_cmd_send(wmi, if_idx, skb,
+				   WMI_SET_CHANNEL_PARAMS_CMDID,
+				   NO_SYNC_WMIFLAG);
 }
 
 int ath6kl_wmi_scanparams_cmd(struct wmi *wmi, u8 if_idx,
@@ -2313,8 +2497,11 @@ int ath6kl_wmi_addkey_cmd(struct wmi *wmi, u8 if_idx, u8 key_index,
 			  u8 key_op_ctrl, u8 *mac_addr,
 			  enum wmi_sync_flag sync_flag)
 {
+	struct wmi_add_cipher_key_cmd_ar6014 *legacy;
 	struct sk_buff *skb;
 	struct wmi_add_cipher_key_cmd *cmd;
+	bool ar6014;
+	size_t len;
 	int ret;
 
 	ath6kl_dbg(ATH6KL_DBG_WMI,
@@ -2328,13 +2515,14 @@ int ath6kl_wmi_addkey_cmd(struct wmi *wmi, u8 if_idx, u8 key_index,
 	if ((WEP_CRYPT != key_type) && (NULL == key_rsc))
 		return -EINVAL;
 
-	skb = ath6kl_wmi_get_new_buf(sizeof(*cmd));
+	ar6014 = wmi->parent_dev->target_type == TARGET_TYPE_AR6014;
+	len = ar6014 ? sizeof(*legacy) : sizeof(*cmd);
+	skb = ath6kl_wmi_get_new_buf(len);
 	if (!skb)
 		return -ENOMEM;
 
 	cmd = (struct wmi_add_cipher_key_cmd *) skb->data;
 	cmd->key_index = key_index;
-	cmd->key_type = key_type;
 	cmd->key_usage = key_usage;
 	cmd->key_len = key_len;
 	memcpy(cmd->key, key_material, key_len);
@@ -2344,7 +2532,17 @@ int ath6kl_wmi_addkey_cmd(struct wmi *wmi, u8 if_idx, u8 key_index,
 
 	cmd->key_op_ctrl = key_op_ctrl;
 
-	if (mac_addr)
+	if (ar6014) {
+		ret = ar6014_crypto_type(key_type, &cmd->key_type);
+		if (ret) {
+			dev_kfree_skb(skb);
+			return ret;
+		}
+	} else {
+		cmd->key_type = key_type;
+	}
+
+	if (!ar6014 && mac_addr)
 		memcpy(cmd->key_mac_addr, mac_addr, ETH_ALEN);
 
 	ret = ath6kl_wmi_cmd_send(wmi, if_idx, skb, WMI_ADD_CIPHER_KEY_CMDID,
@@ -2430,7 +2628,6 @@ int ath6kl_wmi_setpmkid_cmd(struct wmi *wmi, u8 if_idx, const u8 *bssid,
 static int ath6kl_wmi_data_sync_send(struct wmi *wmi, struct sk_buff *skb,
 			      enum htc_endpoint_id ep_id, u8 if_idx)
 {
-	struct wmi_data_hdr *data_hdr;
 	int ret;
 
 	if (WARN_ON(skb == NULL || ep_id == wmi->ep_id)) {
@@ -2438,11 +2635,13 @@ static int ath6kl_wmi_data_sync_send(struct wmi *wmi, struct sk_buff *skb,
 		return -EINVAL;
 	}
 
-	skb_push(skb, sizeof(struct wmi_data_hdr));
-
-	data_hdr = (struct wmi_data_hdr *) skb->data;
-	data_hdr->info = SYNC_MSGTYPE << WMI_DATA_HDR_MSG_TYPE_SHIFT;
-	data_hdr->info3 = cpu_to_le16(if_idx & WMI_DATA_HDR_IF_IDX_MASK);
+	ret = ath6kl_wmi_data_hdr_add(wmi, skb, SYNC_MSGTYPE, 0,
+				      WMI_DATA_HDR_DATA_TYPE_802_3, 0, NULL,
+				      if_idx);
+	if (ret) {
+		dev_kfree_skb(skb);
+		return ret;
+	}
 
 	ret = ath6kl_control_tx(wmi->parent_dev, skb, ep_id);
 
@@ -3979,17 +4178,29 @@ static int ath6kl_wmi_proc_events_vif(struct wmi *wmi, u16 if_idx, u16 cmd_id,
 static int ath6kl_wmi_proc_events(struct wmi *wmi, struct sk_buff *skb)
 {
 	struct wmi_cmd_hdr *cmd;
+	struct ath6kl *ar = wmi->parent_dev;
 	int ret = 0;
+	int hdr_len;
 	u32 len;
 	u16 id;
 	u8 if_idx;
 	u8 *datap;
 
-	cmd = (struct wmi_cmd_hdr *) skb->data;
-	id = le16_to_cpu(cmd->cmd_id);
-	if_idx = le16_to_cpu(cmd->info1) & WMI_CMD_HDR_IF_ID_MASK;
+	if (ar->target_type == TARGET_TYPE_AR6014) {
+		struct wmi_cmd_hdr_ar6014 *cmd_ar6014 =
+			(struct wmi_cmd_hdr_ar6014 *)skb->data;
 
-	skb_pull(skb, sizeof(struct wmi_cmd_hdr));
+		hdr_len = sizeof(*cmd_ar6014);
+		id = le16_to_cpu(cmd_ar6014->cmd_id);
+		if_idx = 0;
+	} else {
+		hdr_len = sizeof(*cmd);
+		cmd = (struct wmi_cmd_hdr *)skb->data;
+		id = le16_to_cpu(cmd->cmd_id);
+		if_idx = le16_to_cpu(cmd->info1) & WMI_CMD_HDR_IF_ID_MASK;
+	}
+
+	skb_pull(skb, hdr_len);
 	datap = skb->data;
 	len = skb->len;
 
@@ -4127,10 +4338,17 @@ static int ath6kl_wmi_proc_events(struct wmi *wmi, struct sk_buff *skb)
 /* Control Path */
 int ath6kl_wmi_control_rx(struct wmi *wmi, struct sk_buff *skb)
 {
+	size_t hdr_len;
+
 	if (WARN_ON(skb == NULL))
 		return -EINVAL;
 
-	if (skb->len < sizeof(struct wmi_cmd_hdr)) {
+	if (wmi->parent_dev->target_type == TARGET_TYPE_AR6014)
+		hdr_len = sizeof(struct wmi_cmd_hdr_ar6014);
+	else
+		hdr_len = sizeof(struct wmi_cmd_hdr);
+
+	if (skb->len < hdr_len) {
 		ath6kl_err("bad packet 1\n");
 		dev_kfree_skb(skb);
 		return -EINVAL;

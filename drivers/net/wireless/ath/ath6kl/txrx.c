@@ -744,11 +744,19 @@ void ath6kl_tx_complete(struct htc_target *target,
 		}
 
 		if (eid == ar->ctrl_ep) {
-			if_idx = wmi_cmd_hdr_get_if_idx(
-				(struct wmi_cmd_hdr *) packet->buf);
+			if (ar->target_type == TARGET_TYPE_AR6014)
+				if_idx = 0;
+			else
+				if_idx = wmi_cmd_hdr_get_if_idx((struct wmi_cmd_hdr *)
+								packet->buf);
 		} else {
-			if_idx = wmi_data_hdr_get_if_idx(
-				(struct wmi_data_hdr *) packet->buf);
+			struct wmi_data_hdr *hdr;
+
+			hdr = (struct wmi_data_hdr *)packet->buf;
+			if (ar->target_type == TARGET_TYPE_AR6014)
+				if_idx = 0;
+			else
+				if_idx = wmi_data_hdr_get_if_idx(hdr);
 		}
 
 		vif = ath6kl_get_vif_by_index(ar, if_idx);
@@ -1317,6 +1325,7 @@ void ath6kl_rx(struct htc_target *target, struct htc_packet *packet)
 	struct ath6kl_vif *vif;
 	struct aggr_info_conn *aggr_conn;
 	u16 seq_no, offset;
+	u8 data_hdr_len;
 	u8 tid, if_idx;
 
 	ath6kl_dbg(ATH6KL_DBG_WLAN_RX,
@@ -1341,11 +1350,17 @@ void ath6kl_rx(struct htc_target *target, struct htc_packet *packet)
 			ath6kl_wmi_control_rx(ar->wmi, skb);
 			return;
 		}
-		if_idx =
-		wmi_cmd_hdr_get_if_idx((struct wmi_cmd_hdr *) skb->data);
+		if (ar->target_type == TARGET_TYPE_AR6014)
+			if_idx = 0;
+		else
+			if_idx = wmi_cmd_hdr_get_if_idx((struct wmi_cmd_hdr *)
+							skb->data);
 	} else {
-		if_idx =
-		wmi_data_hdr_get_if_idx((struct wmi_data_hdr *) skb->data);
+		dhdr = (struct wmi_data_hdr *)skb->data;
+		if (ar->target_type == TARGET_TYPE_AR6014)
+			if_idx = 0;
+		else
+			if_idx = wmi_data_hdr_get_if_idx(dhdr);
 	}
 
 	vif = ath6kl_get_vif_by_index(ar, if_idx);
@@ -1376,10 +1391,13 @@ void ath6kl_rx(struct htc_target *target, struct htc_packet *packet)
 
 	ath6kl_check_wow_status(ar);
 
-	min_hdr_len = sizeof(struct ethhdr) + sizeof(struct wmi_data_hdr) +
-		      sizeof(struct ath6kl_llc_snap_hdr);
+	if (ar->target_type == TARGET_TYPE_AR6014)
+		data_hdr_len = sizeof(struct wmi_data_hdr_ar6014);
+	else
+		data_hdr_len = sizeof(struct wmi_data_hdr);
 
-	dhdr = (struct wmi_data_hdr *) skb->data;
+	min_hdr_len = sizeof(struct ethhdr) + data_hdr_len +
+		      sizeof(struct ath6kl_llc_snap_hdr);
 
 	/*
 	 * In the case of AP mode we may receive NULL data frames
@@ -1396,19 +1414,29 @@ void ath6kl_rx(struct htc_target *target, struct htc_packet *packet)
 		return;
 	}
 
-	pad_before_data_start =
-		(le16_to_cpu(dhdr->info3) >> WMI_DATA_HDR_PAD_BEFORE_DATA_SHIFT)
-			& WMI_DATA_HDR_PAD_BEFORE_DATA_MASK;
+	if (ar->target_type == TARGET_TYPE_AR6014) {
+		pad_before_data_start = 0;
+	} else {
+		pad_before_data_start =
+			(le16_to_cpu(dhdr->info3) >>
+			 WMI_DATA_HDR_PAD_BEFORE_DATA_SHIFT) &
+			WMI_DATA_HDR_PAD_BEFORE_DATA_MASK;
+	}
 
 	/* Get the Power save state of the STA */
 	if (vif->nw_type == AP_NETWORK) {
-		meta_type = wmi_data_hdr_get_meta(dhdr);
-
 		ps_state = !!((dhdr->info >> WMI_DATA_HDR_PS_SHIFT) &
 			      WMI_DATA_HDR_PS_MASK);
 
-		offset = sizeof(struct wmi_data_hdr) + pad_before_data_start;
-		trig_state = !!(le16_to_cpu(dhdr->info3) & WMI_DATA_HDR_TRIG);
+		offset = data_hdr_len + pad_before_data_start;
+		if (ar->target_type == TARGET_TYPE_AR6014) {
+			meta_type = 0;
+			trig_state = false;
+		} else {
+			meta_type = wmi_data_hdr_get_meta(dhdr);
+			trig_state = !!(le16_to_cpu(dhdr->info3) &
+					WMI_DATA_HDR_TRIG);
+		}
 
 		switch (meta_type) {
 		case 0:
@@ -1517,13 +1545,19 @@ void ath6kl_rx(struct htc_target *target, struct htc_packet *packet)
 		}
 	}
 
-	is_amsdu = wmi_data_hdr_is_amsdu(dhdr) ? true : false;
 	tid = wmi_data_hdr_get_up(dhdr);
-	seq_no = wmi_data_hdr_get_seqno(dhdr);
-	meta_type = wmi_data_hdr_get_meta(dhdr);
 	dot11_hdr = wmi_data_hdr_get_dot11(dhdr);
+	if (ar->target_type == TARGET_TYPE_AR6014) {
+		is_amsdu = false;
+		seq_no = 0;
+		meta_type = 0;
+	} else {
+		is_amsdu = wmi_data_hdr_is_amsdu(dhdr) ? true : false;
+		seq_no = wmi_data_hdr_get_seqno(dhdr);
+		meta_type = wmi_data_hdr_get_meta(dhdr);
+	}
 
-	skb_pull(skb, sizeof(struct wmi_data_hdr));
+	skb_pull(skb, data_hdr_len);
 
 	switch (meta_type) {
 	case WMI_META_VERSION_1:

@@ -106,6 +106,15 @@ int ath6kl_core_init(struct ath6kl *ar, enum ath6kl_htc_type htc_type)
 	ar->target_type = le32_to_cpu(targ_info.type);
 	ar->wiphy->hw_version = le32_to_cpu(targ_info.version);
 
+	/*
+	 * The AR6014 (Nintendo 3DS) reports a chip-id (0x0D00000x) as its
+	 * target type, matching none of ath6kl's TARGET_TYPE_* dispatch, which
+	 * would leave the host-interest base (and VTOP) computed as 0. Normalise
+	 * it to our own constant so those come out right.
+	 */
+	if (ar->version.target_ver == AR6014_HW_1_0_VERSION)
+		ar->target_type = TARGET_TYPE_AR6014;
+
 	ret = ath6kl_init_hw_params(ar);
 	if (ret)
 		goto err_power_off;

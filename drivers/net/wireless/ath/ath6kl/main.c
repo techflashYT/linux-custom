@@ -559,6 +559,39 @@ void ath6kl_scan_complete_evt(struct ath6kl_vif *vif, int status)
 {
 	struct ath6kl *ar = vif->ar;
 	bool aborted = false;
+	int ret;
+
+	/*
+	 * AR6014 scans only the first channel installed by
+	 * WMI_SET_CHANNEL_PARAMS_CMD. Advance through the cfg80211 request one
+	 * channel at a time, as the Nintendo/nocash driver does, and report one
+	 * combined scan to cfg80211 after the final channel.
+	 */
+	if (ar->target_type == TARGET_TYPE_AR6014 &&
+	    status == WMI_SCAN_STATUS_SUCCESS && vif->scan_req &&
+	    ++vif->ar6014_scan_chan_idx < vif->scan_req->n_channels) {
+		struct cfg80211_scan_request *request = vif->scan_req;
+		u16 channel = request->channels[vif->ar6014_scan_chan_idx]->center_freq;
+
+		ret = ath6kl_wmi_channelparams_cmd(ar->wmi, vif->fw_vif_idx,
+						   0, WMI_11G_MODE, 1,
+						   &channel);
+		if (!ret)
+			ret = ath6kl_wmi_beginscan_cmd(ar->wmi,
+						       vif->fw_vif_idx, WMI_LONG_SCAN,
+						       false, false, 0,
+						       ATH6KL_FG_SCAN_INTERVAL, 0,
+						       NULL, request->no_cck,
+						       request->rates);
+		if (!ret) {
+			ath6kl_dbg(ATH6KL_DBG_WLAN_CFG,
+				   "AR6014 scan continuing on %u MHz\n", channel);
+			return;
+		}
+
+		ath6kl_err("failed to continue AR6014 scan: %d\n", ret);
+		aborted = true;
+	}
 
 	if (status != WMI_SCAN_STATUS_SUCCESS)
 		aborted = true;

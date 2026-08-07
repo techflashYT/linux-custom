@@ -227,6 +227,12 @@ struct wmi_data_hdr {
 	__le16 info3;
 } __packed;
 
+/* AR6014 predates the sequence/meta/interface fields in wmi_data_hdr. */
+struct wmi_data_hdr_ar6014 {
+	s8 rssi;
+	u8 info;
+} __packed;
+
 static inline u8 wmi_data_hdr_get_up(struct wmi_data_hdr *dhdr)
 {
 	return (dhdr->info >> WMI_DATA_HDR_UP_SHIFT) & WMI_DATA_HDR_UP_MASK;
@@ -336,6 +342,11 @@ struct wmi_cmd_hdr {
 
 	/* for alignment */
 	__le16 reserved;
+} __packed;
+
+/* AR6014 predates the interface-id and alignment words. */
+struct wmi_cmd_hdr_ar6014 {
+	__le16 cmd_id;
 } __packed;
 
 static inline u8 wmi_cmd_hdr_get_if_idx(struct wmi_cmd_hdr *chdr)
@@ -732,6 +743,21 @@ enum wmi_connect_ctrl_flags_bits {
 	CONNECT_WPS_FLAG = 0x0100,
 };
 
+struct wmi_connect_cmd_ar6014 {
+	u8 nw_type;
+	u8 dot11_auth_mode;
+	u8 auth_mode;
+	u8 prwise_crypto_type;
+	u8 prwise_crypto_len;
+	u8 grp_crypto_type;
+	u8 grp_crypto_len;
+	u8 ssid_len;
+	u8 ssid[IEEE80211_MAX_SSID_LEN];
+	__le16 ch;
+	u8 bssid[ETH_ALEN];
+	__le32 ctrl_flags;
+} __packed;
+
 struct wmi_connect_cmd {
 	u8 nw_type;
 	u8 dot11_auth_mode;
@@ -795,6 +821,16 @@ struct wmi_add_cipher_key_cmd {
 	u8 key_op_ctrl;
 
 	u8 key_mac_addr[ETH_ALEN];
+} __packed;
+
+struct wmi_add_cipher_key_cmd_ar6014 {
+	u8 key_index;
+	u8 key_type;
+	u8 key_usage;
+	u8 key_len;
+	u8 key_rsc[8];
+	u8 key[WLAN_MAX_KEY_LEN];
+	u8 key_op_ctrl;
 } __packed;
 
 /* WMI_DELETE_CIPHER_KEY_CMDID */
@@ -1226,6 +1262,14 @@ enum wmi_phy_mode {
 
 #define WMI_MAX_CHANNELS        32
 
+struct wmi_channel_params_cmd {
+	u8 reserved;
+	u8 scan_param;
+	u8 phy_mode;
+	u8 num_channels;
+	__le16 channel_list[];
+} __packed;
+
 /*
  *  WMI_RSSI_THRESHOLD_PARAMS_CMDID
  *  Setting the polltime to 0 would disable polling. Threshold values are
@@ -1506,6 +1550,17 @@ struct wmi_ready_event_2 {
 	u8 phy_cap;
 } __packed;
 
+/*
+ * AR6014 uses the older 12-byte WMI ready-event layout. Some firmware
+ * variants append another four bytes; callers must allow that trailing data.
+ */
+struct wmi_ready_event_ar6014 {
+	u8 mac_addr[ETH_ALEN];
+	u8 phy_cap;
+	u8 reserved;
+	__le32 sw_version;
+} __packed;
+
 /* WMI_PHY_CAPABILITY */
 enum wmi_phy_cap {
 	WMI_11A_CAP = 0x01,
@@ -1666,6 +1721,16 @@ struct wmi_bss_info_hdr2 {
 	u8 snr; /* note: rssi = snr - 95 dBm */
 	u8 bssid[ETH_ALEN];
 	__le16 ie_mask;
+} __packed;
+
+/* Older BSS-info header emitted by the AR6014 firmware. */
+struct wmi_bss_info_hdr_ar6014 {
+	__le16 ch; /* frequency in MHz */
+	u8 frame_type;
+	u8 snr;
+	a_sle16 rssi; /* unreliable on this firmware; use snr instead */
+	u8 bssid[ETH_ALEN];
+	__le32 ie_mask;
 } __packed;
 
 /* Command Error Event */
@@ -2570,6 +2635,9 @@ int ath6kl_wmi_scanparams_cmd(struct wmi *wmi, u8 if_idx, u16 fg_start_sec,
 			      u16 pas_chdw_msec, u8 short_scan_ratio,
 			      u8 scan_ctrl_flag, u32 max_dfsch_act_time,
 			      u16 maxact_scan_per_ssid);
+int ath6kl_wmi_channelparams_cmd(struct wmi *wmi, u8 if_idx, u8 scan_param,
+				 enum wmi_phy_mode phy_mode, u8 num_channels,
+				 const u16 *channel_list);
 int ath6kl_wmi_bssfilter_cmd(struct wmi *wmi, u8 if_idx, u8 filter,
 			     u32 ie_mask);
 int ath6kl_wmi_probedssid_cmd(struct wmi *wmi, u8 if_idx, u8 index, u8 flag,

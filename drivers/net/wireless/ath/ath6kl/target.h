@@ -143,6 +143,7 @@
  */
 #define ATH6KL_AR6003_HI_START_ADDR           0x00540600
 #define ATH6KL_AR6004_HI_START_ADDR           0x00400800
+#define ATH6KL_AR6014_HI_START_ADDR           0x00520000
 
 /*
  * These are items that the Host may need to access
@@ -332,10 +333,12 @@ struct host_interest {
 /* Convert a Target virtual address into a Target physical address */
 #define AR6003_VTOP(vaddr) ((vaddr) & 0x001fffff)
 #define AR6004_VTOP(vaddr) (vaddr)
+#define AR6014_VTOP(vaddr) (vaddr)
 
 #define TARG_VTOP(target_type, vaddr) \
 	(((target_type) == TARGET_TYPE_AR6003) ? AR6003_VTOP(vaddr) : \
-	(((target_type) == TARGET_TYPE_AR6004) ? AR6004_VTOP(vaddr) : 0))
+	(((target_type) == TARGET_TYPE_AR6004) ? AR6004_VTOP(vaddr) : \
+	(((target_type) == TARGET_TYPE_AR6014) ? AR6014_VTOP(vaddr) : 0)))
 
 #define ATH6KL_FWLOG_PAYLOAD_SIZE		1500
 

@@ -21,6 +21,7 @@
 #include <linux/moduleparam.h>
 #include <linux/errno.h>
 #include <linux/export.h>
+#include <linux/delay.h>
 #include <linux/of.h>
 #include <linux/mmc/sdio_func.h>
 #include <linux/vmalloc.h>
@@ -186,6 +187,36 @@ static const struct ath6kl_hw hw_list[] = {
 
 		.fw_board		= AR6004_HW_3_0_BOARD_DATA_FILE,
 		.fw_default_board	= AR6004_HW_3_0_DEFAULT_BOARD_DATA_FILE,
+	},
+	{
+		.id				= AR6014_HW_1_0_VERSION,
+		.name				= "ar6014 hw 1.0",
+		/*
+		 * app_load_addr / app_start_override_addr are the real AR6014
+		 * values from nocash's wifiboot BMI upload (code -> 0x515000,
+		 * execute -> 0x915000). The remaining addresses are cloned from
+		 * AR6003 hw2.0 as a starting point and are not yet verified for
+		 * this chip - firmware/board files are the first thing missing,
+		 * so refine these once the loader gets past file loading.
+		 */
+		.dataset_patch_addr		= 0x57e884,
+		.app_load_addr			= 0x515000,
+		.app_start_override_addr	= 0x915000,
+		.board_ext_data_addr		= 0x57e500,
+		.reserved_ram_size		= 6912,
+		.refclk_hz			= 26000000,
+		.uarttx_pin			= 8,
+		.flags				= 0,
+
+		.fw = {
+			.dir		= AR6014_HW_1_0_FW_DIR,
+			.otp		= AR6014_HW_1_0_OTP_FILE,
+			.fw		= AR6014_HW_1_0_FIRMWARE_FILE,
+			.patch		= AR6014_HW_1_0_PATCH_FILE,
+		},
+
+		.fw_board		= AR6014_HW_1_0_BOARD_DATA_FILE,
+		.fw_default_board	= AR6014_HW_1_0_DEFAULT_BOARD_DATA_FILE,
 	},
 };
 
@@ -538,6 +569,16 @@ int ath6kl_configure_target(struct ath6kl *ar)
 	u32 param, ram_reserved_size;
 	u8 fw_iftype, fw_mode = 0, fw_submode = 0;
 	int i, status;
+
+	/*
+	 * AR6014 uses its ROM host-interest defaults.  Its dedicated upload
+	 * path programs the HTC protocol version and the two mailbox values
+	 * used by NWM/wifiboot.  The remaining values below are AR6003/AR6004
+	 * policy, and in particular the option, UART and reference-clock
+	 * fields have not been verified for AR6014.
+	 */
+	if (ar->target_type == TARGET_TYPE_AR6014)
+		return 0;
 
 	param = !!(ar->conf_flags & ATH6KL_CONF_UART_DEBUG);
 	if (ath6kl_bmi_write_hi32(ar, hi_serial_enable, param)) {
@@ -1149,9 +1190,37 @@ out:
 	return ret;
 }
 
+static int ath6kl_fetch_fw_ar6014(struct ath6kl *ar)
+{
+	char filename[100];
+	int ret;
+
+	/*
+	 * The AR6014 (Nintendo 3DS) is not driven by ath6kl's normal
+	 * board/otp/firmware/patch files - it uses a single self-describing
+	 * container (built from the NWM app-patch). Load it whole into ar->fw;
+	 * the stub reads its own EEPROM/board data, so nothing else is needed.
+	 */
+	snprintf(filename, sizeof(filename), "%s/%s",
+		 ar->hw.fw.dir, ar->hw.fw.fw);
+
+	ret = ath6kl_get_fw(ar, filename, &ar->fw, &ar->fw_len);
+	if (ret) {
+		ath6kl_err("failed to load AR6014 firmware %s: %d\n",
+			   filename, ret);
+		return ret;
+	}
+
+	ar->fw_api = 1;
+	return 0;
+}
+
 int ath6kl_init_fetch_firmwares(struct ath6kl *ar)
 {
 	int ret;
+
+	if (ar->version.target_ver == AR6014_HW_1_0_VERSION)
+		return ath6kl_fetch_fw_ar6014(ar);
 
 	ret = ath6kl_fetch_board_file(ar);
 	if (ret)
@@ -1439,10 +1508,155 @@ static int ath6kl_upload_testscript(struct ath6kl *ar)
 	return 0;
 }
 
+/* upload methods encoded in the AR6014 firmware container */
+#define AR6014_UPLOAD_WRITE	0	/* plain BMI write */
+#define AR6014_UPLOAD_LZ	1	/* LZ-compressed BMI fast download */
+#define AR6014_UPLOAD_EXEC	2	/* BMI execute (no data) */
+
+static inline u32 ar6014_le32(const u8 *p)
+{
+	return p[0] | (p[1] << 8) | (p[2] << 16) | ((u32)p[3] << 24);
+}
+
+/*
+ * The AR6014 (Nintendo 3DS) is not brought up by ath6kl's normal
+ * board/otp/firmware/patch upload. HOS's NWM instead uploads a small
+ * app-patch on top of the on-chip ROM: it BMI-writes a stub (data + code),
+ * executes it, then LZ-streams the "main.type1" (station-mode) firmware.
+ * Those blocks are carried in a self-describing container:
+ *
+ *   "AR6014FW", u32 version, u32 nparts,
+ *   nparts * { u32 method, u32 addr, u32 len },
+ *   <data blobs concatenated in part order; EXEC parts carry none>
+ *
+ * which we replay here with ath6kl's existing BMI primitives (the same BMI
+ * command set NWM/nocash use). The stub reads the calibration EEPROM itself,
+ * so no board file is uploaded.
+ */
+static int ath6kl_upload_ar6014_firmware(struct ath6kl *ar)
+{
+	const u8 *fw = ar->fw, *data;
+	size_t len = ar->fw_len;
+	u32 nparts, i, hi = ATH6KL_AR6014_HI_START_ADDR;
+	u32 old_sleep = 0, old_scratch = 0;
+	__le32 v;
+	int ret;
+
+	if (!fw || len < 16 || memcmp(fw, "AR6014FW", 8)) {
+		ath6kl_err("AR6014: missing or malformed firmware container\n");
+		return -EINVAL;
+	}
+
+	/*
+	 * Bring the target up the way HOS/nocash do - ath6kl's normal
+	 * init_upload register setup is AR6003/AR6004-specific and wrong here,
+	 * and we bypass it anyway. Clock the WLAN CPU, nudge the sleep/scratch
+	 * registers and seed the host-interest area; without this the uploaded
+	 * firmware never starts and htc_wait_target times out.
+	 */
+	v = cpu_to_le32(2);
+	ret = ath6kl_bmi_write(ar, hi, (u8 *)&v, sizeof(v));
+	if (!ret)
+		ret = ath6kl_bmi_reg_read(ar, 0x0180c0, &old_scratch);
+	if (!ret)
+		ret = ath6kl_bmi_reg_write(ar, 0x0180c0, old_scratch | 0x8);
+	if (!ret)
+		ret = ath6kl_bmi_reg_read(ar, 0x0040c4, &old_sleep);
+	if (!ret)
+		ret = ath6kl_bmi_reg_write(ar, 0x0040c4, old_sleep | 0x1);
+	if (!ret)
+		ret = ath6kl_bmi_reg_write(ar, 0x004028, 0x5); /* WLAN_CLOCK_CONTROL */
+	if (!ret)
+		ret = ath6kl_bmi_reg_write(ar, 0x004020, 0x0); /* WLAN_CPU_CLOCK */
+	if (ret) {
+		ath6kl_err("AR6014: target register setup failed: %d\n", ret);
+		return ret;
+	}
+
+	nparts = ar6014_le32(fw + 12);
+	/* data blobs start after the fixed header and the descriptor table */
+	if (16 + (u64)nparts * 12 > len) {
+		ath6kl_err("AR6014: truncated firmware descriptor table\n");
+		return -EINVAL;
+	}
+	data = fw + 16 + nparts * 12;
+
+	for (i = 0; i < nparts; i++) {
+		const u8 *desc = fw + 16 + i * 12;
+		u32 method = ar6014_le32(desc + 0);
+		u32 addr   = ar6014_le32(desc + 4);
+		u32 dlen   = ar6014_le32(desc + 8);
+		u32 param = 0;
+
+		if (method != AR6014_UPLOAD_EXEC &&
+		    (size_t)(data - fw) + dlen > len) {
+			ath6kl_err("AR6014: firmware part %u overruns file\n", i);
+			return -EINVAL;
+		}
+
+		switch (method) {
+		case AR6014_UPLOAD_WRITE:
+			ath6kl_dbg(ATH6KL_DBG_BOOT,
+				   "ar6014: write 0x%08x (%u B)\n", addr, dlen);
+			ret = ath6kl_bmi_write(ar, addr, (u8 *)data, dlen);
+			data += dlen;
+			break;
+		case AR6014_UPLOAD_LZ:
+			ath6kl_dbg(ATH6KL_DBG_BOOT,
+				   "ar6014: lz download 0x%08x (%u B)\n",
+				   addr, dlen);
+			ret = ath6kl_bmi_fast_download(ar, addr, (u8 *)data, dlen);
+			data += dlen;
+			break;
+		case AR6014_UPLOAD_EXEC:
+			ath6kl_dbg(ATH6KL_DBG_BOOT,
+				   "ar6014: execute 0x%08x\n", addr);
+			ret = ath6kl_bmi_execute(ar, addr, &param);
+			break;
+		default:
+			ath6kl_err("AR6014: unknown upload method %u\n", method);
+			return -EINVAL;
+		}
+
+		if (ret) {
+			ath6kl_err("AR6014: upload step %u (method %u, addr 0x%08x) failed: %d\n",
+				   i, method, addr, ret);
+			return ret;
+		}
+	}
+
+	/*
+	 * Finish sequence (nocash sdio_bmi_finish): restore the sleep/scratch
+	 * registers and program the mailbox parameters in the host-interest
+	 * area, then the caller's ath6kl_bmi_done() launches the firmware.
+	 */
+	ret = ath6kl_bmi_reg_write(ar, 0x0040c4, old_sleep & ~0x1);
+	if (!ret)
+		ret = ath6kl_bmi_reg_write(ar, 0x0180c0, old_scratch);
+	if (!ret) {
+		v = cpu_to_le32(0x80); /* hi_mbox_io_block_sz */
+		ret = ath6kl_bmi_write(ar, hi + 0x6c, (u8 *)&v, sizeof(v));
+	}
+	if (!ret) {
+		v = cpu_to_le32(0x63); /* hi_mbox_isr_yield_limit */
+		ret = ath6kl_bmi_write(ar, hi + 0x74, (u8 *)&v, sizeof(v));
+	}
+	if (ret) {
+		ath6kl_err("AR6014: target finish failed: %d\n", ret);
+		return ret;
+	}
+
+	ath6kl_dbg(ATH6KL_DBG_BOOT, "ar6014: firmware upload complete\n");
+	return 0;
+}
+
 static int ath6kl_init_upload(struct ath6kl *ar)
 {
 	u32 param, options, sleep, address;
 	int status = 0;
+
+	if (ar->version.target_ver == AR6014_HW_1_0_VERSION)
+		return ath6kl_upload_ar6014_firmware(ar);
 
 	if (ar->target_type != TARGET_TYPE_AR6003 &&
 	    ar->target_type != TARGET_TYPE_AR6004)
@@ -1703,6 +1917,62 @@ static int ath6kl_init_hw_reset(struct ath6kl *ar)
 				   cpu_to_le32(RESET_CONTROL_COLD_RST));
 }
 
+/*
+ * AR6014 firmware reads and applies the on-board EEPROM after BMI_DONE.
+ * NWM/wifiboot waits for this host-interest flag before beginning HTC; if
+ * HTC is started earlier, WMI can become operational before the radio has
+ * finished its calibration setup.
+ */
+static int ath6kl_ar6014_wait_board_ready(struct ath6kl *ar)
+{
+	u32 hi = ATH6KL_AR6014_HI_START_ADDR;
+	u32 board_addr, board_version, ready;
+	unsigned long timeout;
+	int ret;
+
+	timeout = jiffies + msecs_to_jiffies(BMI_COMMUNICATION_TIMEOUT);
+	do {
+		ret = ath6kl_diag_read32(ar,
+					 hi + HI_ITEM(hi_board_data_initialized),
+					 &ready);
+		if (ret)
+			return ret;
+
+		ready = le32_to_cpu((__force __le32)ready);
+		if (ready == 1)
+			break;
+
+		usleep_range(1000, 2000);
+	} while (time_before(jiffies, timeout));
+
+	if (ready != 1) {
+		ath6kl_err("AR6014: EEPROM initialization timed out (state 0x%x)\n",
+			   ready);
+		return -ETIMEDOUT;
+	}
+
+	ret = ath6kl_diag_read32(ar, hi + HI_ITEM(hi_board_data),
+				 &board_addr);
+	if (ret)
+		return ret;
+
+	board_addr = le32_to_cpu((__force __le32)board_addr);
+	if (!board_addr) {
+		ath6kl_err("AR6014: EEPROM initialized without a data address\n");
+		return -EIO;
+	}
+
+	ret = ath6kl_diag_read32(ar, board_addr + 0x10, &board_version);
+	if (ret)
+		return ret;
+
+	board_version = le32_to_cpu((__force __le32)board_version);
+	ath6kl_info("AR6014: EEPROM ready at 0x%08x, version 0x%08x\n",
+		    board_addr, board_version);
+
+	return 0;
+}
+
 static int __ath6kl_init_hw_start(struct ath6kl *ar)
 {
 	long timeleft;
@@ -1727,6 +1997,12 @@ static int __ath6kl_init_hw_start(struct ath6kl *ar)
 	ret = ath6kl_bmi_done(ar);
 	if (ret)
 		goto err_power_off;
+
+	if (ar->target_type == TARGET_TYPE_AR6014) {
+		ret = ath6kl_ar6014_wait_board_ready(ar);
+		if (ret)
+			goto err_power_off;
+	}
 
 	/*
 	 * The reason we have to wait for the target here is that the

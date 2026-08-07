@@ -244,6 +244,21 @@ enum ath6kl_hw_flags {
 #define AR6004_HW_3_0_BOARD_DATA_FILE	      AR6004_HW_3_0_FW_DIR "/bdata.bin"
 #define AR6004_HW_3_0_DEFAULT_BOARD_DATA_FILE AR6004_HW_3_0_FW_DIR "/bdata.bin"
 
+/*
+ * AR6014G definitions (Atheros AR6014G as found soldered on the Nintendo 3DS
+ * WiFi SDIO bus; also used on the DSi and Wii U). Reports target_ver
+ * 0x2300006f. Modelled on AR6003 hw2.0 (closest memory map / firmware layout:
+ * stub -> code -> execute -> eeprom, LZ-compressed image), with the load and
+ * execute addresses taken from nocash's wifiboot BMI upload for this chip.
+ */
+#define AR6014_HW_1_0_VERSION			0x2300006f
+#define AR6014_HW_1_0_FW_DIR			"ath6k/AR6014/hw1.0"
+#define AR6014_HW_1_0_OTP_FILE			"otp.bin"
+#define AR6014_HW_1_0_FIRMWARE_FILE		"fw-ar6014.bin"
+#define AR6014_HW_1_0_PATCH_FILE		"data.patch.bin"
+#define AR6014_HW_1_0_BOARD_DATA_FILE	      AR6014_HW_1_0_FW_DIR "/bdata.bin"
+#define AR6014_HW_1_0_DEFAULT_BOARD_DATA_FILE AR6014_HW_1_0_FW_DIR "/bdata.bin"
+
 /* Per STA data, used in AP mode */
 #define STA_PS_AWAKE		BIT(0)
 #define	STA_PS_SLEEP		BIT(1)
@@ -629,6 +644,7 @@ struct ath6kl_vif {
 	struct timer_list sched_scan_timer;
 
 	struct cfg80211_scan_request *scan_req;
+	u8 ar6014_scan_chan_idx;
 	enum sme_state sme_state;
 	int reconnect_flag;
 	u32 last_roc_id;
@@ -887,6 +903,8 @@ static inline u32 ath6kl_get_hi_item_addr(struct ath6kl *ar,
 		addr = ATH6KL_AR6003_HI_START_ADDR + item_offset;
 	else if (ar->target_type == TARGET_TYPE_AR6004)
 		addr = ATH6KL_AR6004_HI_START_ADDR + item_offset;
+	else if (ar->target_type == TARGET_TYPE_AR6014)
+		addr = ATH6KL_AR6014_HI_START_ADDR + item_offset;
 
 	return addr;
 }

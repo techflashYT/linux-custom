@@ -136,6 +136,9 @@
 #define TARGET_VERSION_SENTINAL 0xffffffff
 #define TARGET_TYPE_AR6003      3
 #define TARGET_TYPE_AR6004      5
+/* the AR6014 (Nintendo 3DS) reports a chip-id as its type; ath6kl normalises
+ * it to this constant (see ath6kl_core_init) so target-type dispatch works */
+#define TARGET_TYPE_AR6014      6
 #define BMI_ROMPATCH_INSTALL               9
 /*
  * Semantics: Install a ROM Patch.
@@ -214,7 +217,7 @@
  * Note: Not supported on all versions of ROM firmware.
  */
 
-#define BMI_COMMUNICATION_TIMEOUT       1000 /* in msec */
+#define BMI_COMMUNICATION_TIMEOUT       3000 /* in msec */
 
 struct ath6kl;
 struct ath6kl_bmi_target_info {

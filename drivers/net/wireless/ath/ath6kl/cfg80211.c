@@ -456,6 +456,9 @@ static int ath6kl_cfg80211_connect(struct wiphy *wiphy, struct net_device *dev,
 {
 	struct ath6kl *ar = ath6kl_priv(dev);
 	struct ath6kl_vif *vif = netdev_priv(dev);
+	struct ieee80211_channel *channel;
+	struct cfg80211_bss *bss = NULL;
+	const u8 *bssid;
 	int status;
 	u8 nw_subtype = (ar->p2p) ? SUBTYPE_P2PDEV : SUBTYPE_NONE;
 	u16 interval;
@@ -536,12 +539,46 @@ static int ath6kl_cfg80211_connect(struct wiphy *wiphy, struct net_device *dev,
 	vif->ssid_len = sme->ssid_len;
 	memcpy(vif->ssid, sme->ssid, sme->ssid_len);
 
-	if (sme->channel)
-		vif->ch_hint = sme->channel->center_freq;
+	channel = sme->channel ? sme->channel : sme->channel_hint;
+	bssid = sme->bssid;
+	if ((!bssid || is_zero_ether_addr(bssid) ||
+	     is_broadcast_ether_addr(bssid)) && sme->bssid_hint)
+		bssid = sme->bssid_hint;
+	if (bssid && (is_zero_ether_addr(bssid) ||
+		      is_broadcast_ether_addr(bssid)))
+		bssid = NULL;
+
+	/*
+	 * Unlike newer ath6kl firmware, AR6014 does not select a BSS from an
+	 * SSID-only CONNECT command.  Resolve the concrete channel and BSSID
+	 * from the scan cache, as NWM/wifiboot do before connecting.
+	 */
+	if (ar->target_type == TARGET_TYPE_AR6014) {
+		bss = cfg80211_get_bss(wiphy, channel, bssid, sme->ssid,
+				       sme->ssid_len, IEEE80211_BSS_TYPE_ESS,
+				       IEEE80211_PRIVACY(sme->privacy));
+		if (!bss) {
+			ath6kl_err("AR6014: connect BSS is not in scan cache\n");
+			up(&ar->sem);
+			return -ENOENT;
+		}
+
+		channel = bss->channel;
+		bssid = bss->bssid;
+		ath6kl_dbg(ATH6KL_DBG_WLAN_CFG,
+			   "AR6014: resolved connect target %pM at %u MHz\n",
+			   bssid, channel->center_freq);
+	}
+
+	if (channel)
+		vif->ch_hint = channel->center_freq;
 
 	memset(vif->req_bssid, 0, sizeof(vif->req_bssid));
-	if (sme->bssid && !is_broadcast_ether_addr(sme->bssid))
-		memcpy(vif->req_bssid, sme->bssid, sizeof(vif->req_bssid));
+	if (bssid)
+		memcpy(vif->req_bssid, bssid, sizeof(vif->req_bssid));
+
+	if (bss)
+		cfg80211_put_bss(wiphy, bss);
 
 	ath6kl_set_wpa_version(vif, sme->crypto.wpa_versions);
 
@@ -617,6 +654,20 @@ static int ath6kl_cfg80211_connect(struct wiphy *wiphy, struct net_device *dev,
 
 	vif->reconnect_flag = 0;
 
+	if (ar->target_type == TARGET_TYPE_AR6014) {
+		u16 channel_list = vif->ch_hint;
+
+		status = ath6kl_wmi_channelparams_cmd(ar->wmi, vif->fw_vif_idx,
+						      0, WMI_11G_MODE,
+						      1, &channel_list);
+		if (status) {
+			ath6kl_err("failed to set AR6014 connect channel: %d\n",
+				   status);
+			up(&ar->sem);
+			return status;
+		}
+	}
+
 	if (vif->nw_type == INFRA_NETWORK) {
 		interval = max_t(u16, vif->listen_intvl_t,
 				 ATH6KL_MAX_WOW_LISTEN_INTL);
@@ -647,8 +698,10 @@ static int ath6kl_cfg80211_connect(struct wiphy *wiphy, struct net_device *dev,
 		sme->bg_scan_period = DEFAULT_BG_SCAN_PERIOD;
 	}
 
-	ath6kl_wmi_scanparams_cmd(ar->wmi, vif->fw_vif_idx, 0, 0,
-				  sme->bg_scan_period, 0, 0, 0, 3, 0, 0, 0);
+	if (ar->target_type != TARGET_TYPE_AR6014)
+		ath6kl_wmi_scanparams_cmd(ar->wmi, vif->fw_vif_idx, 0, 0,
+					  sme->bg_scan_period, 0, 0, 0,
+					  3, 0, 0, 0);
 
 	up(&ar->sem);
 
@@ -1054,13 +1107,49 @@ static int ath6kl_cfg80211_scan(struct wiphy *wiphy,
 	if (test_bit(CONNECTED, &vif->flags))
 		force_fg_scan = 1;
 
+	/*
+	 * The AR6014 firmware does not get useful dwell-time defaults from the
+	 * normal ath6kl setup. Match the values used by the Nintendo/nocash
+	 * driver: 128 ms active/passive dwell and connect-command scanning
+	 * enabled. Without this, a full 2.4 GHz scan finishes in about 500 ms,
+	 * too quickly to reliably receive 100 ms beacon intervals.
+	 */
+	if (ar->target_type == TARGET_TYPE_AR6014 && n_channels > 0) {
+		vif->ar6014_scan_chan_idx = 0;
+		ret = ath6kl_wmi_channelparams_cmd(ar->wmi, vif->fw_vif_idx,
+						   0, WMI_11G_MODE,
+						   1, channels);
+		if (ret) {
+			ath6kl_err("failed to set AR6014 channels: %d\n", ret);
+			kfree(channels);
+			return ret;
+		}
+
+		ret = ath6kl_wmi_scanparams_cmd(ar->wmi, vif->fw_vif_idx,
+						0xffff, 0xffff, 0xffff, 128,
+						128, 128, 0,
+						CONNECT_SCAN_CTRL_FLAGS |
+						ACTIVE_SCAN_CTRL_FLAGS, 0, 0);
+		if (ret) {
+			ath6kl_err("failed to set AR6014 scan parameters: %d\n",
+				   ret);
+			kfree(channels);
+			return ret;
+		}
+	}
+
 	vif->scan_req = request;
 
 	ret = ath6kl_wmi_beginscan_cmd(ar->wmi, vif->fw_vif_idx,
 				       WMI_LONG_SCAN, force_fg_scan,
 				       false, 0,
 				       ATH6KL_FG_SCAN_INTERVAL,
-				       n_channels, channels,
+				       ar->target_type == TARGET_TYPE_AR6014 &&
+				       n_channels > 0 ?
+						0 : n_channels,
+				       ar->target_type == TARGET_TYPE_AR6014 &&
+				       n_channels > 0 ?
+						NULL : channels,
 				       request->no_cck,
 				       request->rates);
 	if (ret) {
@@ -4044,4 +4133,3 @@ void ath6kl_cfg80211_destroy(struct ath6kl *ar)
 
 	wiphy_free(ar->wiphy);
 }
-

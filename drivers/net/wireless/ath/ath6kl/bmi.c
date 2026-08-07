@@ -15,6 +15,8 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include <linux/delay.h>
+
 #include "core.h"
 #include "hif-ops.h"
 #include "target.h"
@@ -51,6 +53,15 @@ int ath6kl_bmi_get_target_info(struct ath6kl *ar,
 		ath6kl_err("bmi done sent already, cmd %d disallowed\n", cid);
 		return -EACCES;
 	}
+
+	/*
+	 * The AR6014 (Nintendo 3DS) is not ready for BMI the instant it
+	 * enumerates - polling its command-credit counter too early reads
+	 * nothing and the poll times out (nocash's driver waits here too,
+	 * "else sdio_bmi_init gets SLOW timeout"). Give the chip a moment to
+	 * settle before the first BMI transaction.
+	 */
+	msleep(100);
 
 	ret = ath6kl_hif_bmi_write(ar, (u8 *)&cid, sizeof(cid));
 	if (ret) {

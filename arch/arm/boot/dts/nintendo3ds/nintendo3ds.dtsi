@@ -10,9 +10,9 @@
 
 	display: framebuffer@18000000 {
 		compatible = "simple-framebuffer";
-		reg = <0x18000000 (400*240*2)>;
+		reg = <0x18000000 (800*240*2)>;
 		width = <240>;
-		height = <400>;
+		height = <800>;
 		stride = <(240*2)>;
 		format = "r5g6b5";
 	};

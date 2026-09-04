@@ -4436,6 +4436,18 @@ static const struct ata_dev_quirks_entry __ata_dev_quirks[] = {
 	{ "OCZ-VERTEX*",	NULL,		ATA_QUIRK_NO_FUA },
 	{ "INTEL*SSDSC2CT*",	NULL,		ATA_QUIRK_NO_FUA },
 
+#ifdef CONFIG_X86_XBOX
+	/*
+	 * The Thomson DVD drive found in some original Xbox units returns
+	 * SAM_STAT_CHECK_CONDITION for a plain SCSI INQUIRY (its ATA IDENTIFY
+	 * PACKET DEVICE response is fine). The generic SCSI scan code
+	 * correctly treats that as "nothing here" and never registers the
+	 * drive, so /dev/sr0 never appears. See ata_scsiop_inquiry_xbox_atapi()
+	 * in libata-scsi.c for the workaround this quirk enables.
+	 */
+	{ "THOMSON-DVD",	NULL,		ATA_QUIRK_XBOX_ATAPI_INQUIRY },
+#endif
+
 	/* End Marker */
 	{ }
 };

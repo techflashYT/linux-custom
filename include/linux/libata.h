@@ -80,6 +80,9 @@ enum ata_quirks {
 	__ATA_QUIRK_NO_ID_DEV_LOG,	/* Identify device log missing */
 	__ATA_QUIRK_NO_LOG_DIR,		/* Do not read log directory */
 	__ATA_QUIRK_NO_FUA,		/* Do not use FUA */
+#ifdef CONFIG_X86_XBOX
+	__ATA_QUIRK_XBOX_ATAPI_INQUIRY,	/* ATAPI dev rejects plain INQUIRY */
+#endif
 
 	__ATA_QUIRK_MAX,
 };
@@ -119,6 +122,9 @@ enum {
 	ATA_QUIRK_NO_ID_DEV_LOG		= BIT_ULL(__ATA_QUIRK_NO_ID_DEV_LOG),
 	ATA_QUIRK_NO_LOG_DIR		= BIT_ULL(__ATA_QUIRK_NO_LOG_DIR),
 	ATA_QUIRK_NO_FUA		= BIT_ULL(__ATA_QUIRK_NO_FUA),
+#ifdef CONFIG_X86_XBOX
+	ATA_QUIRK_XBOX_ATAPI_INQUIRY	= BIT_ULL(__ATA_QUIRK_XBOX_ATAPI_INQUIRY),
+#endif
 };
 
 enum {

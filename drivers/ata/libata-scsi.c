@@ -2029,6 +2029,64 @@ static void ata_scsi_rbuf_fill(struct ata_device *dev, struct scsi_cmnd *cmd,
 	spin_unlock_irqrestore(&ata_scsi_rbuf_lock, flags);
 }
 
+#ifdef CONFIG_X86_XBOX
+/**
+ *	ata_scsiop_inquiry_xbox_atapi - Simulate standard INQUIRY for the
+ *	Xbox's Thomson DVD drive
+ *	@dev: Target device.
+ *	@cmd: SCSI command of interest.
+ *	@rbuf: Response buffer, to which simulated SCSI cmd output is sent.
+ *
+ *	This drive (ATA_QUIRK_XBOX_ATAPI_INQUIRY, matched by model string in
+ *	libata-core.c) returns SAM_STAT_CHECK_CONDITION for a plain SCSI
+ *	INQUIRY sent to its actual firmware, which makes the generic SCSI
+ *	scan code correctly, but unhelpfully, conclude nothing is there. The
+ *	drive never gets registered as a SCSI device at all. Its ATA
+ *	IDENTIFY PACKET DEVICE response is fine, so build the standard
+ *	INQUIRY response in software from that instead of ever sending
+ *	INQUIRY to the drive itself, the same way libata already does for
+ *	plain ATA disks in ata_scsiop_inq_std() below.
+ *
+ *	LOCKING:
+ *	spin_lock_irqsave(host lock)
+ */
+static unsigned int ata_scsiop_inquiry_xbox_atapi(struct ata_device *dev,
+						   struct scsi_cmnd *cmd,
+						   u8 *rbuf)
+{
+	static const u8 versions[] = {
+		0x00,
+		0x60,	/* SAM-3 (no version claimed) */
+
+		0x03,
+		0x20,	/* SBC-2 (no version claimed) */
+
+		0x03,
+		0x00	/* SPC-3 (no version claimed) */
+	};
+	static const u8 hdr[] = {
+		TYPE_ROM,
+		0x80,	/* removable */
+		0x5,	/* claim SPC-3 version compatibility */
+		2,
+		95 - 4,
+		0,
+		0,
+		2
+	};
+
+	memcpy(rbuf, hdr, sizeof(hdr));
+	memcpy(&rbuf[8], "ATA     ", 8);
+	ata_id_string(dev->id, &rbuf[16], ATA_ID_PROD, 16);
+	ata_id_string(dev->id, &rbuf[32], ATA_ID_FW_REV, 4);
+	if (rbuf[32] == 0 || rbuf[32] == ' ')
+		memcpy(&rbuf[32], "n/a ", 4);
+	memcpy(rbuf + 58, versions, sizeof(versions));
+
+	return 96;
+}
+#endif
+
 /**
  *	ata_scsiop_inq_std - Simulate standard INQUIRY command
  *	@dev: Target device.
@@ -4565,7 +4623,12 @@ static void ata_scsi_simulate(struct ata_device *dev, struct scsi_cmnd *cmd)
 
 	switch (scsicmd[0]) {
 	case INQUIRY:
-		ata_scsi_rbuf_fill(dev, cmd, ata_scsiop_inquiry);
+#ifdef CONFIG_X86_XBOX
+		if (dev->quirks & ATA_QUIRK_XBOX_ATAPI_INQUIRY)
+			ata_scsi_rbuf_fill(dev, cmd, ata_scsiop_inquiry_xbox_atapi);
+		else
+#endif
+			ata_scsi_rbuf_fill(dev, cmd, ata_scsiop_inquiry);
 		break;
 
 	case MODE_SENSE:
@@ -4655,7 +4718,15 @@ enum scsi_qc_status __ata_scsi_queuecmd(struct scsi_cmnd *scmd,
 			     scmd->cmd_len > ATAPI_CDB_LEN))
 			goto bad_cdb_len;
 
-		xlat_func = atapi_xlat;
+#ifdef CONFIG_X86_XBOX
+		if (unlikely(scsi_op == INQUIRY &&
+			     (dev->quirks & ATA_QUIRK_XBOX_ATAPI_INQUIRY)))
+			/* let ata_scsi_simulate() synthesize INQUIRY instead
+			 * of relaying it to this drive's broken firmware */
+			xlat_func = NULL;
+		else
+#endif
+			xlat_func = atapi_xlat;
 	} else {
 		/* ATA_16 passthru, treat as an ATA command */
 		if (unlikely(scmd->cmd_len > 16))

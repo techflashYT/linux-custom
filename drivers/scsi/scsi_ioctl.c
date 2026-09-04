@@ -25,6 +25,10 @@
 #include <scsi/sg.h>
 #include <scsi/scsi_dbg.h>
 
+#ifdef CONFIG_X86_XBOX
+#include <linux/xbox.h>
+#endif
+
 #include "scsi_logging.h"
 
 #define NORMAL_RETRIES			5
@@ -122,6 +126,64 @@ out:
 				      "IOCTL Releasing command\n"));
 	return result;
 }
+
+#ifdef CONFIG_X86_XBOX
+/*
+ * Known Xbox OEM DVD drives, and how each handles door locking / ejecting.
+ * This is the sr.c/libata-era equivalent of the drive table that used to
+ * live in drivers/ide/ide-cd.c's ide_cd_quirks_list[] before the legacy IDE
+ * subsystem was removed.
+ *
+ * All four of these drives need door locking simulated in software (the
+ * physical eject button is Xbox-SMC-driven regardless of ATAPI compliance,
+ * and locking is meant to stop *that* button, not just software eject
+ * requests). Three of the four additionally don't understand the ATAPI
+ * START STOP UNIT eject/load command at all, and need the SMC to move the
+ * tray directly instead. Samsung's drive is the exception and gets a
+ * normal ATAPI eject.
+ *
+ * Matched against the SCSI INQUIRY model field (sdev->model), which is
+ * capped at 16 bytes by spec, unlike the old ATA IDENTIFY-based table,
+ * which had up to 40 bytes to work with. "THOMSON-DVD" fits as-is; the
+ * other two names are longer than 16 bytes, so these are a best-effort
+ * truncation guess at how each drive's own firmware formats its INQUIRY
+ * response, unverified against real hardware. Worst case a wrong guess
+ * just never matches, leaving that drive's eject/lock behavior completely
+ * unmodified from stock.
+ *
+ * This lives here in scsi_ioctl.c (part of scsi_mod) rather than in sr.c/
+ * sr_ioctl.c because scsi_ioctl() below needs it too: userspace can reach
+ * CDROMEJECT/CDROMCLOSETRAY and SCSI_IOCTL_DOORLOCK/DOORUNLOCK directly
+ * through this generic ioctl path, bypassing drivers/cdrom/cdrom.c (and
+ * thus sr_tray_move()/sr_lock_door()) entirely.
+ */
+static const struct xbox_cd_quirk xbox_cd_quirks[] = {
+	/* Reports incorrect capabilities; doesn't understand ATAPI eject. */
+	{ "THOMSON-DVD",	true },
+	/* Reports correct capabilities; doesn't understand ATAPI eject. */
+	{ "PHILIPS XBOX",	true },
+	/* Reports incorrect capabilities; understands ATAPI eject, but the
+	 * original xbox-linux driver preferred the SMC for it regardless. */
+	{ "PHILIPS J5 3235C",	true },
+	/* Reports correct capabilities and understands ATAPI eject. */
+	{ "SAMSUNG DVD-ROM",	false },
+	{ }
+};
+
+const struct xbox_cd_quirk *xbox_cd_quirk_lookup(struct scsi_device *sdev)
+{
+	const struct xbox_cd_quirk *q;
+
+	if (!machine_is_xbox())
+		return NULL;
+
+	for (q = xbox_cd_quirks; q->model; q++) {
+		if (!strncmp(sdev->model, q->model, strlen(q->model)))
+			return q;
+	}
+	return NULL;
+}
+#endif
 
 /**
  * scsi_set_medium_removal() - send command to allow or prevent medium removal
@@ -923,8 +985,29 @@ int scsi_ioctl(struct scsi_device *sdev, bool open_for_write, int cmd,
 	case CDROM_SEND_PACKET:
 		return scsi_cdrom_send_packet(sdev, open_for_write, arg);
 	case CDROMCLOSETRAY:
+#ifdef CONFIG_X86_XBOX
+		{
+			const struct xbox_cd_quirk *xq = xbox_cd_quirk_lookup(sdev);
+
+			if (xq && xq->smc_eject) {
+				xbox_tray_load();
+				return 0;
+			}
+		}
+#endif
 		return scsi_send_start_stop(sdev, 3);
 	case CDROMEJECT:
+#ifdef CONFIG_X86_XBOX
+		{
+			const struct xbox_cd_quirk *xq = xbox_cd_quirk_lookup(sdev);
+
+			if (xq && xq->smc_eject) {
+				Xbox_simulate_drive_locked = 0;
+				xbox_tray_eject();
+				return 0;
+			}
+		}
+#endif
 		return scsi_send_start_stop(sdev, 2);
 	case SCSI_IOCTL_GET_IDLUN:
 		return scsi_get_idlun(sdev, arg);
@@ -933,8 +1016,20 @@ int scsi_ioctl(struct scsi_device *sdev, bool open_for_write, int cmd,
 	case SCSI_IOCTL_PROBE_HOST:
 		return ioctl_probe(sdev->host, arg);
 	case SCSI_IOCTL_DOORLOCK:
+#ifdef CONFIG_X86_XBOX
+		if (xbox_cd_quirk_lookup(sdev)) {
+			Xbox_simulate_drive_locked = 1;
+			return 0;
+		}
+#endif
 		return scsi_set_medium_removal(sdev, SCSI_REMOVAL_PREVENT);
 	case SCSI_IOCTL_DOORUNLOCK:
+#ifdef CONFIG_X86_XBOX
+		if (xbox_cd_quirk_lookup(sdev)) {
+			Xbox_simulate_drive_locked = 0;
+			return 0;
+		}
+#endif
 		return scsi_set_medium_removal(sdev, SCSI_REMOVAL_ALLOW);
 	case SCSI_IOCTL_TEST_UNIT_READY:
 		return scsi_test_unit_ready(sdev, IOCTL_NORMAL_TIMEOUT,

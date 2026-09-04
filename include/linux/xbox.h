@@ -81,6 +81,12 @@ unsigned long xbox_pit_tick_rate(void);
 void xbox_smc_write(u8, u8);
 int xbox_smc_read(u8);
 
+/* defined in arch/x86/xbox/xbox-extsmi.c; set by software door-lock
+ * simulation (sr_lock_door()) and consulted by the eject-button IRQ
+ * handler so a software-locked door isn't bypassed by the physical
+ * button. */
+extern volatile int Xbox_simulate_drive_locked;
+
 #define xbox_tray_load() \
 		xbox_smc_write(SMC_CMD_EJECT, SMC_SUBCMD_EJECT_LOAD)
 #define xbox_tray_eject() \

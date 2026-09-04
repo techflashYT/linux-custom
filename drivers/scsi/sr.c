@@ -900,6 +900,24 @@ static int get_capabilities(struct scsi_cd *cd)
 	/*else    I don't think it can close its tray
 		cd->cdi.mask |= CDC_CLOSE_TRAY; */
 
+#ifdef CONFIG_X86_XBOX
+	/*
+	 * Known Xbox OEM drives misreport their own eject capability and
+	 * load-mechanism type in this same byte (buffer[n+6] above -- eject
+	 * capability is bit 3, checked just above this block; mechanism type
+	 * is bits 5-7, checked earlier and wrongly comes back as "caddy"
+	 * instead of "tray"). The eject-capability bit makes
+	 * cdrom_ioctl_eject() bail out with -ENOSYS before ever calling
+	 * sr_tray_move()/sr_lock_door() (see xbox_cd_quirks[] in
+	 * scsi_ioctl.c); the mechanism-type bit disables CDC_CLOSE_TRAY,
+	 * which cdrom_open()'s auto-close-on-open logic checks directly.
+	 * Un-mask both here so those all work, redirected through the Xbox
+	 * SMC for drives that can't take the real ATAPI commands either way.
+	 */
+	if (xbox_cd_quirk_lookup(cd->device))
+		cd->cdi.mask &= ~(CDC_OPEN_TRAY | CDC_CLOSE_TRAY);
+#endif
+
 	kfree(buffer);
 	return 0;
 }

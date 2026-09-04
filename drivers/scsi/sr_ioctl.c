@@ -21,6 +21,10 @@
 #include <scsi/scsi_ioctl.h>
 #include <scsi/scsi_cmnd.h>
 
+#ifdef CONFIG_X86_XBOX
+#include <linux/xbox.h>
+#endif
+
 #include "sr.h"
 
 #if 0
@@ -266,6 +270,12 @@ int sr_do_ioctl(Scsi_CD *cd, struct packet_command *cgc)
 	return err;
 }
 
+/*
+ * xbox_cd_quirk_lookup()/struct xbox_cd_quirk are declared in
+ * <scsi/scsi_ioctl.h> and defined in scsi_ioctl.c -- see the comment there
+ * for why this lives in scsi_mod rather than here in sr_mod.
+ */
+
 /* ---------------------------------------------------------------------- */
 /* interface to cdrom.c                                                   */
 
@@ -273,6 +283,27 @@ int sr_tray_move(struct cdrom_device_info *cdi, int pos)
 {
 	Scsi_CD *cd = cdi->handle;
 	struct packet_command cgc;
+
+#ifdef CONFIG_X86_XBOX
+	/*
+	 * See xbox_cd_quirks[] in scsi_ioctl.c. This is the libata/sr.c-era
+	 * equivalent of the pre-libata cdrom_eject() Xbox workaround that
+	 * used to live in drivers/ide/ide-cd_ioctl.c.
+	 */
+	{
+		const struct xbox_cd_quirk *q = xbox_cd_quirk_lookup(cd->device);
+
+		if (q && q->smc_eject) {
+			if (pos == 0) {
+				xbox_tray_load();
+			} else {
+				Xbox_simulate_drive_locked = 0;
+				xbox_tray_eject();
+			}
+			return 0;
+		}
+	}
+#endif
 
 	memset(&cgc, 0, sizeof(struct packet_command));
 	cgc.cmd[0] = GPCMD_START_STOP_UNIT;
@@ -285,6 +316,18 @@ int sr_tray_move(struct cdrom_device_info *cdi, int pos)
 int sr_lock_door(struct cdrom_device_info *cdi, int lock)
 {
 	Scsi_CD *cd = cdi->handle;
+
+#ifdef CONFIG_X86_XBOX
+	/*
+	 * See xbox_cd_quirks[] in scsi_ioctl.c -- all four known Xbox drives
+	 * get door locking simulated in software, matching what
+	 * ide-cd_ioctl.c's ide_cd_lockdoor() used to do for the same drives.
+	 */
+	if (xbox_cd_quirk_lookup(cd->device)) {
+		Xbox_simulate_drive_locked = lock;
+		return 0;
+	}
+#endif
 
 	return scsi_set_medium_removal(cd->device, lock ?
 		       SCSI_REMOVAL_PREVENT : SCSI_REMOVAL_ALLOW);

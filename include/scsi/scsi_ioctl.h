@@ -51,5 +51,23 @@ int get_sg_io_hdr(struct sg_io_hdr *hdr, const void __user *argp);
 int put_sg_io_hdr(const struct sg_io_hdr *hdr, void __user *argp);
 bool scsi_cmd_allowed(unsigned char *cmd, bool open_for_write);
 
+#ifdef CONFIG_X86_XBOX
+/*
+ * Known Xbox OEM DVD drives that need door locking / ejecting handled via
+ * the Xbox SMC instead of real ATAPI commands their firmware can't handle.
+ * Defined in scsi_ioctl.c (part of scsi_mod, which drivers/scsi/sr.c and
+ * sr_ioctl.c -- part of sr_mod -- both already depend on) rather than in sr
+ * itself, since scsi_ioctl() needs it too: userspace can reach
+ * SCSI_IOCTL_DOORLOCK/DOORUNLOCK and CDROMEJECT/CDROMCLOSETRAY directly
+ * through the generic SCSI ioctl path, bypassing drivers/cdrom/cdrom.c (and
+ * thus sr_lock_door()/sr_tray_move()) entirely.
+ */
+struct xbox_cd_quirk {
+	const char *model;
+	bool smc_eject;
+};
+const struct xbox_cd_quirk *xbox_cd_quirk_lookup(struct scsi_device *sdev);
+#endif
+
 #endif /* __KERNEL__ */
 #endif /* _SCSI_IOCTL_H */

@@ -346,7 +346,6 @@
 			compatible = "arm,arm11mp-twd-timer";
 			reg = <0x17E00600 0x20>;
 			interrupts = <GIC_PPI 13 (GIC_CPU_MASK_RAW(0xF) | IRQ_TYPE_EDGE_RISING)>;
-			clocks = <&refclk>;
 		};
 
 		watchdog: twd-watchdog@17e00620 {
@@ -425,15 +424,6 @@
 		clock-div = <2>;
 		clock-mult = <1>;
 		clock-output-names = "3ds:refclk67mhz";
-	};
-
-	cpuclk: refclk268mhz {
-		compatible = "fixed-factor-clock";
-		clocks = <&refclk>;
-		#clock-cells = <0>;
-		clock-div = <1>;
-		clock-mult = <2>;
-		clock-output-names = "3ds:refclk268mhz";
 	};
 
 	poweroff: poweroff {

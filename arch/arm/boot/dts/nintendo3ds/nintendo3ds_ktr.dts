@@ -54,4 +54,26 @@
 		linux,initrd-start = <0x27800000>;
 		linux,initrd-end = <0x28000000>; // 8 MiB
 	};
+
+	timerclk: refclk402mhz {
+		compatible = "fixed-factor-clock";
+		clocks = <&refclk>;
+		#clock-cells = <0>;
+		clock-div = <1>;
+		clock-mult = <3>;
+		clock-output-names = "3ds:refclk402mhz";
+	};
+
+	cpuclk: refclk804mhz {
+		compatible = "fixed-factor-clock";
+		clocks = <&refclk>;
+		#clock-cells = <0>;
+		clock-div = <1>;
+		clock-mult = <6>;
+		clock-output-names = "3ds:refclk804mhz";
+	};
+};
+
+&timer {
+	clocks = <&timerclk>;
 };

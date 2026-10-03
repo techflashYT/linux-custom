@@ -42,6 +42,15 @@
 		linux,initrd-start = <0x27800000>;
 		linux,initrd-end = <0x28000000>; // 8 MiB
 	};
+
+	cpuclk: refclk268mhz {
+		compatible = "fixed-factor-clock";
+		clocks = <&refclk>;
+		#clock-cells = <0>;
+		clock-div = <1>;
+		clock-mult = <2>;
+		clock-output-names = "3ds:refclk268mhz";
+	};
 };
 
 &i2c3 {
@@ -49,4 +58,8 @@
 		compatible = "invensense,itg3200";
 		reg = <0x68>;
 	};
+};
+
+&timer {
+	clocks = <&refclk>;
 };
